@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { supabase } from './supabaseClient';
 import CashFlow from './CashFlow';
 import FinancialTasks from './FinancialTasks';
@@ -148,9 +148,11 @@ function getCalendarEventTone(eventType) {
 export default function App() {
   const [activePage, setActivePage] = useState('wealth');
   const [taskReferenceFilter, setTaskReferenceFilter] = useState('due-date');
+  const [isPriorityFilterMenuOpen, setIsPriorityFilterMenuOpen] = useState(false);
   const [entries, setEntries] = useState([]);
   const [accounts, setAccounts] = useState([]);
   const [categories, setCategories] = useState([]);
+  const [subCategories, setSubCategories] = useState([]);
   const [subAccounts, setSubAccounts] = useState([]);
   const [financialTasks, setFinancialTasks] = useState([]);
   const [error, setError] = useState('');
@@ -170,6 +172,7 @@ export default function App() {
   const [isCalendarVisible, setIsCalendarVisible] = useState(false);
   const [isMonthExpanded, setIsMonthExpanded] = useState(false);
   const [monthlyTransactionFilter, setMonthlyTransactionFilter] = useState('all');
+  const priorityFilterMenuRef = useRef(null);
 
   const [transactionForm, setTransactionForm] = useState({
     entryType: 'income',
@@ -178,6 +181,7 @@ export default function App() {
     fromAccount: '',
     toAccount: '',
     category: '',
+    subCategoryId: '',
     note: '',
     subAccountId: '',
   });
@@ -185,6 +189,17 @@ export default function App() {
   const accountNames = useMemo(() => accounts.map((item) => item.name), [accounts]);
   const categoryNames = useMemo(() => categories.map((item) => item.name), [categories]);
   const subAccountOptions = useMemo(() => subAccounts, [subAccounts]);
+  const selectedCategory = useMemo(
+    () => categories.find((category) => category.name === transactionForm.category) || null,
+    [categories, transactionForm.category],
+  );
+  const filteredSubCategoryOptions = useMemo(() => {
+    if (!selectedCategory) {
+      return [];
+    }
+
+    return subCategories.filter((subCategory) => subCategory.category_id === selectedCategory.id);
+  }, [selectedCategory, subCategories]);
 
   const accountBalances = useMemo(() => {
     const balances = new Map();
@@ -433,10 +448,11 @@ export default function App() {
   async function loadData() {
     setError('');
 
-    const [entriesRes, accountsRes, categoriesRes, subAccountsRes, tasksRes] = await Promise.all([
+    const [entriesRes, accountsRes, categoriesRes, subCategoriesRes, subAccountsRes, tasksRes] = await Promise.all([
       supabase.from('ledger_entries').select('*').order('occurred_at', { ascending: false }),
       supabase.from('accounts').select('*').order('created_at', { ascending: true }),
       supabase.from('categories').select('*').order('created_at', { ascending: true }),
+      supabase.from('sub_categories').select('*').order('created_at', { ascending: true }),
       supabase.from('sub_accounts').select('*').order('created_at', { ascending: true }),
       supabase.from('financial_tasks').select('*').order('due_date', { ascending: true }),
     ]);
@@ -447,6 +463,7 @@ export default function App() {
       setEntries(entriesRes.data ?? []);
       setAccounts(accountsRes.data ?? []);
       setCategories(categoriesRes.data ?? []);
+      setSubCategories(subCategoriesRes.data ?? []);
       setSubAccounts(subAccountsRes.data ?? []);
       setFinancialTasks(tasksRes.data ?? []);
       return;
@@ -455,6 +472,7 @@ export default function App() {
     setEntries(entriesRes.data ?? []);
     setAccounts(accountsRes.data ?? []);
     setCategories(categoriesRes.data ?? []);
+    setSubCategories(subCategoriesRes.data ?? []);
     setSubAccounts(subAccountsRes.data ?? []);
     setFinancialTasks(tasksRes.data ?? []);
   }
@@ -484,6 +502,13 @@ export default function App() {
       const defaultTo = accountNames[1] || accountNames[0] || '';
       const nextTo = accountNames.includes(current.toAccount) ? current.toAccount : defaultTo;
       const nextCategory = categoryNames.includes(current.category) ? current.category : categoryNames[0] || '';
+      const matchedCategory = categories.find((category) => category.name === nextCategory) || null;
+      const availableSubCategories = matchedCategory
+        ? subCategories.filter((subCategory) => subCategory.category_id === matchedCategory.id)
+        : [];
+      const validSubCategory = availableSubCategories.some((subCategory) => subCategory.id === current.subCategoryId)
+        ? current.subCategoryId
+        : '';
 
       return {
         ...current,
@@ -491,9 +516,28 @@ export default function App() {
         fromAccount: nextFrom,
         toAccount: nextTo,
         category: nextCategory,
+        subCategoryId: validSubCategory,
       };
     });
-  }, [accountNames, categoryNames]);
+  }, [accountNames, categories, categoryNames, subCategories]);
+
+  useEffect(() => {
+    if (!isPriorityFilterMenuOpen) {
+      return undefined;
+    }
+
+    const handlePointerDown = (event) => {
+      if (priorityFilterMenuRef.current && !priorityFilterMenuRef.current.contains(event.target)) {
+        setIsPriorityFilterMenuOpen(false);
+      }
+    };
+
+    document.addEventListener('pointerdown', handlePointerDown);
+
+    return () => {
+      document.removeEventListener('pointerdown', handlePointerDown);
+    };
+  }, [isPriorityFilterMenuOpen]);
 
   function openTransactionModal() {
     setSubmitError('');
@@ -506,6 +550,7 @@ export default function App() {
       fromAccount: accountNames[0] || '',
       toAccount: accountNames[1] || accountNames[0] || '',
       category: categoryNames[0] || '',
+      subCategoryId: '',
       note: '',
       subAccountId: '',
     }));
@@ -570,7 +615,7 @@ export default function App() {
       return;
     }
 
-    if (!categoryNames.length) {
+    if (transactionForm.entryType !== 'transfer' && !categoryNames.length) {
       setSubmitError('Add at least one category in Cash Flow page.');
       return;
     }
@@ -600,7 +645,8 @@ export default function App() {
       account_name: transactionForm.entryType === 'transfer' ? null : transactionForm.accountName,
       from_account: transactionForm.entryType === 'transfer' ? transactionForm.fromAccount : null,
       to_account: transactionForm.entryType === 'transfer' ? transactionForm.toAccount : null,
-      category: transactionForm.category || null,
+      category: transactionForm.entryType === 'transfer' ? null : transactionForm.category || null,
+      sub_category_id: transactionForm.entryType === 'transfer' ? null : transactionForm.subCategoryId || null,
       note: transactionForm.note.trim() || null,
       sub_account_id: transactionForm.subAccountId || null,
     };
@@ -707,18 +753,8 @@ export default function App() {
   ];
 
   const priorityTasks = useMemo(() => {
-    return [...financialTasks]
-      .sort((left, right) => {
-        if (left.completed !== right.completed) {
-          return left.completed ? -1 : 1;
-        }
-
-        const leftDate = `${left.due_date || '9999-12-31'}T${left.due_time || '23:59'}:00`;
-        const rightDate = `${right.due_date || '9999-12-31'}T${right.due_time || '23:59'}:00`;
-        return leftDate.localeCompare(rightDate);
-      })
-      .slice(0, 5);
-  }, [financialTasks]);
+    return filteredTaskReferenceTasks.slice(0, 5);
+  }, [filteredTaskReferenceTasks]);
 
   return (
     <div className="wealth-page">
@@ -869,7 +905,41 @@ export default function App() {
                   <section className="tasks-panel glass-panel priority-panel">
                     <div className="panel-head panel-head--modern">
                       <h3>Priority Tasks</h3>
-                      <span className="material-symbols-outlined panel-dots">more_vert</span>
+                      <div className="priority-filter-menu-wrap" ref={priorityFilterMenuRef}>
+                        <button
+                          type="button"
+                          className="panel-dots-btn"
+                          aria-label="Open priority task filters"
+                          aria-expanded={isPriorityFilterMenuOpen}
+                          onClick={() => setIsPriorityFilterMenuOpen((current) => !current)}
+                        >
+                          <span className="material-symbols-outlined panel-dots">more_vert</span>
+                        </button>
+
+                        {isPriorityFilterMenuOpen ? (
+                          <div className="priority-filter-menu" role="menu" aria-label="Priority task filters">
+                            {taskReferenceFilters.map((filter) => {
+                              const isActive = taskReferenceFilter === filter.key;
+
+                              return (
+                                <button
+                                  key={filter.key}
+                                  type="button"
+                                  className={`priority-filter-option ${isActive ? 'active' : ''}`}
+                                  role="menuitemradio"
+                                  aria-checked={isActive}
+                                  onClick={() => {
+                                    setTaskReferenceFilter(filter.key);
+                                    setIsPriorityFilterMenuOpen(false);
+                                  }}
+                                >
+                                  {filter.label}
+                                </button>
+                              );
+                            })}
+                          </div>
+                        ) : null}
+                      </div>
                     </div>
 
                     <ul className="priority-list">
@@ -901,16 +971,6 @@ export default function App() {
                         })
                       )}
                     </ul>
-
-                    <div className="insight-card">
-                      <p className="insight-label">Wealth Insight</p>
-                      <div className="insight-copy-row">
-                        <span className="material-symbols-outlined insight-icon">auto_awesome</span>
-                        <p>
-                          Your current net total is <strong>{money(netTotal)}</strong>. Keep the balance moving in the right direction.
-                        </p>
-                      </div>
-                    </div>
                   </section>
                 </div>
               </div>
@@ -1092,17 +1152,41 @@ export default function App() {
                 </label>
               )}
 
-              {transactionForm.entryType === 'expense' ? (
-                <label>
-                  Category
-                  <select value={transactionForm.category} onChange={(event) => updateTransactionField('category', event.target.value)}>
-                    {categoryNames.map((categoryName) => (
-                      <option key={categoryName} value={categoryName}>
-                        {categoryName}
-                      </option>
-                    ))}
-                  </select>
-                </label>
+              {transactionForm.entryType !== 'transfer' ? (
+                <>
+                  <label>
+                    Category
+                    <select
+                      value={transactionForm.category}
+                      onChange={(event) => {
+                        updateTransactionField('category', event.target.value);
+                        updateTransactionField('subCategoryId', '');
+                      }}
+                    >
+                      {categoryNames.map((categoryName) => (
+                        <option key={categoryName} value={categoryName}>
+                          {categoryName}
+                        </option>
+                      ))}
+                    </select>
+                  </label>
+
+                  <label>
+                    Sub-Category (Optional)
+                    <select
+                      value={transactionForm.subCategoryId}
+                      onChange={(event) => updateTransactionField('subCategoryId', event.target.value)}
+                      disabled={filteredSubCategoryOptions.length === 0}
+                    >
+                      <option value="">None</option>
+                      {filteredSubCategoryOptions.map((subCategory) => (
+                        <option key={subCategory.id} value={subCategory.id}>
+                          {subCategory.name}
+                        </option>
+                      ))}
+                    </select>
+                  </label>
+                </>
               ) : null}
 
               <label>

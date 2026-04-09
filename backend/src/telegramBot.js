@@ -2,8 +2,8 @@ require('dotenv').config();
 
 const TelegramBot = require('node-telegram-bot-api');
 const { supabase } = require('./supabaseClient');
-const { MONEY_CALLBACKS, getMoneyMenuKeyboard, beginMoneyAction, handleMoneyMessage } = require('./moneyModule');
-const { TASK_CALLBACKS, getTaskMenuKeyboard, beginTaskAction, handleTaskMessage } = require('./taskModule');
+const { MONEY_CALLBACKS, getMoneyMenuKeyboard, beginMoneyAction, handleMoneyCallbackQuery, handleMoneyMessage } = require('./moneyModule');
+const { TASK_CALLBACKS, getTaskMenuKeyboard, beginTaskAction, handleTaskMessage, sendTaskPreview } = require('./taskModule');
 
 const token = process.env.TELEGRAM_BOT_TOKEN;
 const authorizedUserIds = String(process.env.AUTHORIZED_TELEGRAM_USER_IDS || '')
@@ -123,9 +123,19 @@ bot.on('callback_query', async (query) => {
 
   if (data === MONEY_CALLBACKS.MENU) {
     sessions.delete(chatId);
+
+    const [accountsRes, subAccountsRes] = await Promise.all([
+      supabase.from('accounts').select('name').order('created_at', { ascending: true }),
+      supabase.from('sub_accounts').select('name').order('created_at', { ascending: true }),
+    ]);
+
+    const accounts = (accountsRes.data || []).map((item, index) => `${index + 1}. ${item.name}`).join('\n') || 'None';
+    const subAccounts = (subAccountsRes.data || []).map((item, index) => `${index + 1}. ${item.name}`).join('\n') || 'None';
+
     await bot.sendMessage(chatId, 'Money Manage: choose an action', {
       reply_markup: getMoneyMenuKeyboard(),
     });
+    await bot.sendMessage(chatId, `Available Accounts:\n${accounts}\n\nAvailable Sub-Accounts:\n${subAccounts}`);
     return;
   }
 
@@ -134,12 +144,24 @@ bot.on('callback_query', async (query) => {
     await bot.sendMessage(chatId, 'Task Manage: choose an action', {
       reply_markup: getTaskMenuKeyboard(),
     });
+    await sendTaskPreview({ chatId, bot, supabase });
     return;
   }
 
   if (data === MONEY_CALLBACKS.BACK || data === TASK_CALLBACKS.BACK) {
     sessions.delete(chatId);
     await sendMainMenu(chatId, 'Choose a module:');
+    return;
+  }
+
+  const handledByMoney = await handleMoneyCallbackQuery({
+    chatId,
+    data,
+    sessions,
+    bot,
+  });
+
+  if (handledByMoney) {
     return;
   }
 

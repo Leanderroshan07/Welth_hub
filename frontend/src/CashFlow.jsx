@@ -24,9 +24,16 @@ export default function CashFlow({ accounts, entries, onDataRefresh, showToast }
   const [editingCategoryId, setEditingCategoryId] = useState('');
   const [showCategoryForm, setShowCategoryForm] = useState(false);
 
+  const [subCategories, setSubCategories] = useState([]);
+  const [subCategoryNameInput, setSubCategoryNameInput] = useState('');
+  const [subCategoryCategoryId, setSubCategoryCategoryId] = useState('');
+  const [editingSubCategoryId, setEditingSubCategoryId] = useState('');
+  const [showSubCategoryForm, setShowSubCategoryForm] = useState(false);
+
   useEffect(() => {
     loadSubAccounts();
     loadCategories();
+    loadSubCategories();
   }, []);
 
   async function loadSubAccounts() {
@@ -40,6 +47,13 @@ export default function CashFlow({ accounts, entries, onDataRefresh, showToast }
     const { data, error } = await supabase.from('categories').select('*').order('created_at', { ascending: true });
     if (!error) {
       setCategories(data || []);
+    }
+  }
+
+  async function loadSubCategories() {
+    const { data, error } = await supabase.from('sub_categories').select('*').order('created_at', { ascending: true });
+    if (!error) {
+      setSubCategories(data || []);
     }
   }
 
@@ -157,12 +171,12 @@ export default function CashFlow({ accounts, entries, onDataRefresh, showToast }
       tone: 'tertiary',
     },
     {
-      key: 'balance',
-      label: 'Net Cash',
-      value: cashFlowNetBalance,
-      subtitle: 'Accounts + sub-accounts',
-      icon: 'savings',
-      tone: 'primary',
+      key: 'subcategories',
+      label: 'Sub-Categories',
+      value: subCategories.length,
+      subtitle: 'Nested category labels',
+      icon: 'label_important',
+      tone: 'secondary',
     },
   ];
 
@@ -314,8 +328,108 @@ export default function CashFlow({ accounts, entries, onDataRefresh, showToast }
     }
 
     await loadCategories();
+    await loadSubCategories();
     showToast('Category deleted successfully.', 'success');
   }
+
+  async function saveSubCategory() {
+    const cleanName = subCategoryNameInput.trim();
+
+    if (!cleanName) {
+      showToast('Please enter sub-category name', 'error');
+      return;
+    }
+
+    if (!subCategoryCategoryId) {
+      showToast('Please choose a parent category', 'error');
+      return;
+    }
+
+    const isEditing = Boolean(editingSubCategoryId);
+    const { error: subCategoryError } = isEditing
+      ? await supabase
+          .from('sub_categories')
+          .update({
+            name: cleanName,
+            category_id: subCategoryCategoryId,
+          })
+          .eq('id', editingSubCategoryId)
+      : await supabase.from('sub_categories').insert({
+          name: cleanName,
+          category_id: subCategoryCategoryId,
+        });
+
+    if (subCategoryError) {
+      showToast(subCategoryError.message, 'error');
+      return;
+    }
+
+    setSubCategoryNameInput('');
+    setSubCategoryCategoryId('');
+    setEditingSubCategoryId('');
+    setShowSubCategoryForm(false);
+    await loadSubCategories();
+    showToast(isEditing ? 'Sub-category updated successfully.' : 'Sub-category added successfully.', 'success');
+  }
+
+  function startEditSubCategory(subCategory) {
+    setEditingSubCategoryId(subCategory.id);
+    setSubCategoryNameInput(subCategory.name);
+    setSubCategoryCategoryId(subCategory.category_id);
+    setShowSubCategoryForm(true);
+  }
+
+  async function deleteSubCategory(subCategoryId) {
+    const { error: subCategoryError } = await supabase.from('sub_categories').delete().eq('id', subCategoryId);
+
+    if (subCategoryError) {
+      showToast(subCategoryError.message, 'error');
+      return;
+    }
+
+    if (editingSubCategoryId === subCategoryId) {
+      setEditingSubCategoryId('');
+      setSubCategoryNameInput('');
+      setSubCategoryCategoryId('');
+    }
+
+    await loadSubCategories();
+    showToast('Sub-category deleted successfully.', 'success');
+  }
+
+  const categoryNameById = useMemo(() => {
+    const mapped = new Map();
+    categories.forEach((category) => {
+      mapped.set(category.id, category.name);
+    });
+    return mapped;
+  }, [categories]);
+
+  const groupedSubCategories = useMemo(() => {
+    const grouped = new Map();
+
+    subCategories.forEach((subCategory) => {
+      const key = subCategory.category_id || 'unknown';
+      const parentName = categoryNameById.get(subCategory.category_id) || 'Unknown Category';
+
+      if (!grouped.has(key)) {
+        grouped.set(key, {
+          key,
+          parentName,
+          items: [],
+        });
+      }
+
+      grouped.get(key).items.push(subCategory);
+    });
+
+    return Array.from(grouped.values())
+      .map((group) => ({
+        ...group,
+        items: [...group.items].sort((left, right) => String(left.name || '').localeCompare(String(right.name || ''))),
+      }))
+      .sort((left, right) => left.parentName.localeCompare(right.parentName));
+  }, [categoryNameById, subCategories]);
 
   return (
     <section className="cashflow-page">
@@ -333,33 +447,6 @@ export default function CashFlow({ accounts, entries, onDataRefresh, showToast }
             <span className="cashflow-hero-balance-label">Net Cash</span>
             <strong>{money(cashFlowNetBalance)}</strong>
             <small>{accountDisplayBalances.length} accounts · {subAccountBalances.length} sub-accounts</small>
-          </div>
-
-          <div className="cashflow-hero-actions">
-            <button
-              type="button"
-              className="hero-action-btn"
-              onClick={() => {
-                setShowAccountForm(true);
-                setAccountNameInput('');
-                setEditingAccountId('');
-              }}
-            >
-              <span className="material-symbols-outlined">add</span>
-              Add Account
-            </button>
-            <button
-              type="button"
-              className="hero-action-btn hero-action-btn--secondary"
-              onClick={() => {
-                setShowSubAccountForm(true);
-                setSubAccountNameInput('');
-                setEditingSubAccountId('');
-              }}
-            >
-              <span className="material-symbols-outlined">add_circle</span>
-              Add Bucket
-            </button>
           </div>
         </div>
       </section>
@@ -587,6 +674,88 @@ export default function CashFlow({ accounts, entries, onDataRefresh, showToast }
             <small>Category</small>
           </article>
         ))}
+        </section>
+      </section>
+
+      <section className="cashflow-panel glass-panel">
+        <div className="manager-title-row">
+          <div>
+            <h2>Sub-Categories</h2>
+            <p>Create sub-categories under each category.</p>
+          </div>
+          <button
+            type="button"
+            className="icon-plus-btn"
+            onClick={() => {
+              setShowSubCategoryForm((current) => !current);
+              setSubCategoryNameInput('');
+              setSubCategoryCategoryId(categories[0]?.id || '');
+              setEditingSubCategoryId('');
+            }}
+            aria-label="Add sub-category"
+          >
+            <span className="material-symbols-outlined">add</span>
+          </button>
+        </div>
+
+        <section className="balance-grid balance-grid--large">
+          {showSubCategoryForm ? (
+            <article className="balance-card add-account-card balance-card--glow">
+              <p>Add Sub-Category</p>
+              <div className="manager-input-row">
+                <input
+                  value={subCategoryNameInput}
+                  onChange={(event) => setSubCategoryNameInput(event.target.value)}
+                  placeholder="Sub-category name"
+                />
+                <select value={subCategoryCategoryId} onChange={(event) => setSubCategoryCategoryId(event.target.value)}>
+                  <option value="">Select category</option>
+                  {categories.map((category) => (
+                    <option key={category.id} value={category.id}>
+                      {category.name}
+                    </option>
+                  ))}
+                </select>
+                <button type="button" onClick={saveSubCategory}>
+                  {editingSubCategoryId ? 'Update' : 'Add'}
+                </button>
+              </div>
+
+              <div className="chip-list">
+                {groupedSubCategories.map((group) => (
+                  <div key={group.key} className="edit-chip">
+                    <div>
+                      <span>{group.parentName}</span>
+                      <small>{group.items.length} sub-categories</small>
+                    </div>
+
+                    <div className="sub-category-group-list">
+                      {group.items.map((subCategory) => (
+                        <div key={subCategory.id} className="sub-category-group-item">
+                          <span>{subCategory.name}</span>
+                          <div className="chip-actions">
+                            <button type="button" onClick={() => startEditSubCategory(subCategory)}>
+                              Edit
+                            </button>
+                            <button type="button" onClick={() => deleteSubCategory(subCategory.id)}>
+                              Delete
+                            </button>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </article>
+          ) : null}
+
+          {groupedSubCategories.map((group) => (
+            <article key={group.key} className="balance-card balance-card--glow">
+              <p>{group.parentName}</p>
+              <small>{group.items.map((subCategory) => subCategory.name).join(' · ')}</small>
+            </article>
+          ))}
         </section>
       </section>
       </section>

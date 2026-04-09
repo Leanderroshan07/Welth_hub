@@ -53,6 +53,28 @@ function beginTaskAction({ chatId, action, sessions, bot }) {
   bot.sendMessage(chatId, `Enter ${taskType} title:`);
 }
 
+function formatTaskPreview(items) {
+  if (!Array.isArray(items) || items.length === 0) {
+    return 'No pending items.';
+  }
+
+  return items
+    .map((item, index) => `${index + 1}. ${item.title} (${item.task_type || 'task'} | due ${item.due_date || 'n/a'})`)
+    .join('\n');
+}
+
+async function sendTaskPreview({ chatId, bot, supabase }) {
+  const { data } = await supabase
+    .from('financial_tasks')
+    .select('title,task_type,due_date,completed')
+    .eq('completed', false)
+    .order('due_date', { ascending: true })
+    .limit(5);
+
+  const pending = data || [];
+  await bot.sendMessage(chatId, `Current pending tasks/routines:\n${formatTaskPreview(pending)}`);
+}
+
 async function insertTaskEntry({ session, supabase }) {
   const payload = session.payload;
 
@@ -205,4 +227,5 @@ module.exports = {
   getTaskMenuKeyboard,
   beginTaskAction,
   handleTaskMessage,
+  sendTaskPreview,
 };

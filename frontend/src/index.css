@@ -564,6 +564,69 @@ select {
   height: 100%;
 }
 
+.priority-filter-menu-wrap {
+  position: relative;
+}
+
+.panel-dots-btn {
+  width: 2rem;
+  height: 2rem;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.03);
+  color: var(--on-surface);
+  display: grid;
+  place-items: center;
+  cursor: pointer;
+  transition: background-color 0.2s ease, border-color 0.2s ease;
+}
+
+.panel-dots-btn:hover {
+  background: rgba(255, 255, 255, 0.08);
+  border-color: rgba(92, 169, 255, 0.35);
+}
+
+.panel-dots {
+  font-size: 1.1rem;
+}
+
+.priority-filter-menu {
+  position: absolute;
+  top: calc(100% + 0.45rem);
+  right: 0;
+  min-width: 10.2rem;
+  padding: 0.45rem;
+  border-radius: 0.85rem;
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  background: rgba(15, 22, 38, 0.95);
+  box-shadow: 0 16px 34px rgba(0, 0, 0, 0.35);
+  z-index: 12;
+}
+
+.priority-filter-option {
+  width: 100%;
+  text-align: left;
+  border: none;
+  border-radius: 0.65rem;
+  padding: 0.5rem 0.6rem;
+  background: transparent;
+  color: var(--on-surface-variant);
+  font-size: 0.78rem;
+  font-weight: 700;
+  cursor: pointer;
+  transition: background-color 0.2s ease, color 0.2s ease;
+}
+
+.priority-filter-option:hover {
+  background: rgba(255, 255, 255, 0.07);
+  color: var(--on-surface);
+}
+
+.priority-filter-option.active {
+  background: rgba(92, 169, 255, 0.2);
+  color: var(--primary);
+}
+
 .priority-list {
   display: flex;
   flex-direction: column;
@@ -636,45 +699,6 @@ select {
 
 .priority-meta.overdue {
   color: var(--tertiary);
-}
-
-.insight-card {
-  margin-top: 1.35rem;
-  padding: 1rem;
-  border-radius: 1rem;
-  background: rgba(255, 255, 255, 0.04);
-  border: 1px solid rgba(255, 255, 255, 0.14);
-  box-shadow:
-    inset 0 1px 0 rgba(255, 255, 255, 0.12),
-    0 16px 32px rgba(0, 0, 0, 0.18);
-  backdrop-filter: none;
-}
-
-.insight-label {
-  margin-bottom: 0.9rem;
-  font-size: 0.65rem;
-  font-weight: 900;
-  text-transform: uppercase;
-  letter-spacing: 0.24em;
-  color: var(--on-surface-variant);
-}
-
-.insight-copy-row {
-  display: flex;
-  gap: 0.75rem;
-  align-items: flex-start;
-}
-
-.insight-icon {
-  font-size: 1rem;
-  color: var(--secondary);
-  margin-top: 0.15rem;
-}
-
-.insight-copy-row p {
-  color: var(--on-surface);
-  font-size: 0.82rem;
-  line-height: 1.6;
 }
 
 .summary-label {
@@ -1554,6 +1578,31 @@ select {
   flex-direction: column;
   gap: 0.2rem;
   margin-top: 0.35rem;
+}
+
+.cashflow-page .sub-category-group-list {
+  width: 100%;
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  margin-top: 0.6rem;
+}
+
+.cashflow-page .sub-category-group-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+  padding: 0.55rem 0.65rem;
+  border-radius: 0.65rem;
+  border: 1px solid rgba(255, 255, 255, 0.09);
+  background: rgba(255, 255, 255, 0.03);
+}
+
+.cashflow-page .sub-category-group-item > span {
+  font-size: 0.82rem;
+  font-weight: 700;
+  color: var(--on-surface);
 }
 
 .cashflow-page .cashflow-header {
