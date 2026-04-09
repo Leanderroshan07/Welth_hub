@@ -19,9 +19,11 @@ Create `backend/.env` with:
 - `TELEGRAM_BOT_TOKEN`
 - `AUTHORIZED_TELEGRAM_USER_IDS`
 - `TELEGRAM_ACCESS_KEY` or `TELEGRAM_SECRET_KEY`
+- `TELEGRAM_ADMIN_USER_IDS` (optional)
 
 `AUTHORIZED_TELEGRAM_USER_IDS` should be a comma-separated list of Telegram numeric user IDs. Only those users can use the bot.
 If you want other users to get in without adding them to the ID list, set `TELEGRAM_ACCESS_KEY` and have them send that key in chat.
+`TELEGRAM_ADMIN_USER_IDS` is a comma-separated list of admins who can view logged-in users and activate/deactivate access. If omitted, `AUTHORIZED_TELEGRAM_USER_IDS` are treated as admins.
 
 Example:
 
@@ -67,3 +69,7 @@ npm start
 - User can send `/cancel` anytime to stop current input flow.
 - If `AUTHORIZED_TELEGRAM_USER_IDS` is empty or missing, the bot asks for the access key instead.
 - Use `/id` in the bot chat to see your Telegram user ID and username.
+- Admin commands:
+	- `/users` shows known logged-in users.
+	- `/deactivate <telegram_user_id>` blocks a user.
+	- `/activate <telegram_user_id>` re-enables a user.

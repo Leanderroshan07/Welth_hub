@@ -7,11 +7,19 @@ const { TASK_CALLBACKS, getTaskMenuKeyboard, beginTaskAction, handleTaskMessage,
 
 const token = process.env.TELEGRAM_BOT_TOKEN;
 const accessKey = String(process.env.TELEGRAM_ACCESS_KEY || process.env.TELEGRAM_SECRET_KEY || '').trim();
-const authorizedUserIds = String(process.env.AUTHORIZED_TELEGRAM_USER_IDS || '')
-  .split(',')
-  .map((value) => Number(value.trim()))
-  .filter((value) => Number.isInteger(value) && value > 0);
+
+function parseNumericIds(value) {
+  return String(value || '')
+    .split(',')
+    .map((item) => Number(item.trim()))
+    .filter((item) => Number.isInteger(item) && item > 0);
+}
+
+const authorizedUserIds = parseNumericIds(process.env.AUTHORIZED_TELEGRAM_USER_IDS);
+const adminUserIds = parseNumericIds(process.env.TELEGRAM_ADMIN_USER_IDS);
 const secretAuthorizedUserIds = new Set();
+const deactivatedUserIds = new Set();
+const knownUsers = new Map();
 
 if (!token) {
   throw new Error('Missing TELEGRAM_BOT_TOKEN environment variable.');
@@ -24,11 +32,85 @@ function isAuthorizedUser(messageOrQuery) {
     return false;
   }
 
+  if (deactivatedUserIds.has(userId)) {
+    return false;
+  }
+
   if (authorizedUserIds.length === 0) {
     return secretAuthorizedUserIds.has(userId);
   }
 
   return authorizedUserIds.includes(userId) || secretAuthorizedUserIds.has(userId);
+}
+
+function isDeactivatedUser(messageOrQuery) {
+  const userId = messageOrQuery?.from?.id;
+  return Number.isInteger(userId) && deactivatedUserIds.has(userId);
+}
+
+function isAdminUser(messageOrQuery) {
+  const userId = messageOrQuery?.from?.id;
+
+  if (!Number.isInteger(userId)) {
+    return false;
+  }
+
+  if (adminUserIds.length > 0) {
+    return adminUserIds.includes(userId);
+  }
+
+  return authorizedUserIds.includes(userId);
+}
+
+function getAccessMethod(userId) {
+  if (authorizedUserIds.includes(userId)) {
+    return 'id-list';
+  }
+
+  if (secretAuthorizedUserIds.has(userId)) {
+    return 'secret-key';
+  }
+
+  return 'unknown';
+}
+
+function registerKnownUser(messageOrQuery, forcedAccessMethod) {
+  const userId = messageOrQuery?.from?.id;
+
+  if (!Number.isInteger(userId)) {
+    return;
+  }
+
+  const username = messageOrQuery?.from?.username ? `@${messageOrQuery.from.username}` : 'no username';
+  const firstName = messageOrQuery?.from?.first_name || '';
+  const lastName = messageOrQuery?.from?.last_name || '';
+
+  knownUsers.set(userId, {
+    userId,
+    username,
+    name: `${firstName} ${lastName}`.trim() || 'Unknown',
+    access: forcedAccessMethod || getAccessMethod(userId),
+    status: deactivatedUserIds.has(userId) ? 'deactivated' : 'active',
+    lastSeenAt: new Date().toISOString(),
+  });
+}
+
+function buildKnownUsersText() {
+  if (knownUsers.size === 0) {
+    return 'No users have logged in yet.';
+  }
+
+  const lines = Array.from(knownUsers.values())
+    .sort((left, right) => String(right.lastSeenAt).localeCompare(String(left.lastSeenAt)))
+    .map((item, index) => {
+      return `${index + 1}. ${item.userId} | ${item.username} | ${item.name} | ${item.access} | ${item.status}`;
+    });
+
+  return `Known users:\n${lines.join('\n')}`;
+}
+
+async function denyDeactivated(chatId) {
+  await bot.sendMessage(chatId, 'Your access is deactivated. Contact the admin.');
 }
 
 async function promptForAccess(chatId) {
@@ -52,6 +134,7 @@ async function handleAccessAttempt({ chatId, userId, text }) {
   }
 
   secretAuthorizedUserIds.add(userId);
+  registerKnownUser({ from: { id: userId } }, 'secret-key');
   sessions.delete(chatId);
   await sendMainMenu(chatId, 'Access granted. Choose a module:');
   return true;
@@ -97,11 +180,17 @@ async function clearClickedCallbackMessage(query) {
 bot.onText(/^\/start$/, async (msg) => {
   const chatId = msg.chat.id;
 
+  if (isDeactivatedUser(msg)) {
+    await denyDeactivated(chatId);
+    return;
+  }
+
   if (!isAuthorizedUser(msg)) {
     await promptForAccess(chatId);
     return;
   }
 
+  registerKnownUser(msg);
   sessions.delete(chatId);
   await sendMainMenu(chatId, 'Welcome to Vaazhi Bot. Choose a module:');
 });
@@ -109,11 +198,17 @@ bot.onText(/^\/start$/, async (msg) => {
 bot.onText(/^\/cancel$/, async (msg) => {
   const chatId = msg.chat.id;
 
+  if (isDeactivatedUser(msg)) {
+    await denyDeactivated(chatId);
+    return;
+  }
+
   if (!isAuthorizedUser(msg)) {
     await promptForAccess(chatId);
     return;
   }
 
+  registerKnownUser(msg);
   const hadSession = sessions.has(chatId);
 
   sessions.delete(chatId);
@@ -130,10 +225,81 @@ bot.onText(/^\/id$/, async (msg) => {
   const userId = msg.from?.id;
   const username = msg.from?.username ? `@${msg.from.username}` : 'no username';
 
+  registerKnownUser(msg);
+
   await bot.sendMessage(
     chatId,
     `Your Telegram user ID is: ${userId}\nUsername: ${username}`,
   );
+});
+
+bot.onText(/^\/users$/, async (msg) => {
+  const chatId = msg.chat.id;
+
+  if (!isAdminUser(msg)) {
+    await bot.sendMessage(chatId, 'Only admins can view logged-in users.');
+    return;
+  }
+
+  registerKnownUser(msg);
+  await bot.sendMessage(chatId, buildKnownUsersText());
+});
+
+bot.onText(/^\/deactivate(?:\s+(\d+))?$/, async (msg, match) => {
+  const chatId = msg.chat.id;
+
+  if (!isAdminUser(msg)) {
+    await bot.sendMessage(chatId, 'Only admins can deactivate users.');
+    return;
+  }
+
+  const targetId = Number(match?.[1]);
+  if (!Number.isInteger(targetId) || targetId <= 0) {
+    await bot.sendMessage(chatId, 'Usage: /deactivate <telegram_user_id>');
+    return;
+  }
+
+  deactivatedUserIds.add(targetId);
+  secretAuthorizedUserIds.delete(targetId);
+
+  const known = knownUsers.get(targetId);
+  if (known) {
+    knownUsers.set(targetId, {
+      ...known,
+      status: 'deactivated',
+      lastSeenAt: new Date().toISOString(),
+    });
+  }
+
+  await bot.sendMessage(chatId, `User ${targetId} deactivated.`);
+});
+
+bot.onText(/^\/activate(?:\s+(\d+))?$/, async (msg, match) => {
+  const chatId = msg.chat.id;
+
+  if (!isAdminUser(msg)) {
+    await bot.sendMessage(chatId, 'Only admins can activate users.');
+    return;
+  }
+
+  const targetId = Number(match?.[1]);
+  if (!Number.isInteger(targetId) || targetId <= 0) {
+    await bot.sendMessage(chatId, 'Usage: /activate <telegram_user_id>');
+    return;
+  }
+
+  deactivatedUserIds.delete(targetId);
+
+  const known = knownUsers.get(targetId);
+  if (known) {
+    knownUsers.set(targetId, {
+      ...known,
+      status: 'active',
+      lastSeenAt: new Date().toISOString(),
+    });
+  }
+
+  await bot.sendMessage(chatId, `User ${targetId} activated.`);
 });
 
 bot.on('callback_query', async (query) => {
@@ -141,6 +307,17 @@ bot.on('callback_query', async (query) => {
   const data = query.data;
 
   if (!chatId || !data) {
+    return;
+  }
+
+  registerKnownUser(query);
+
+  if (isDeactivatedUser(query)) {
+    await bot.answerCallbackQuery(query.id, {
+      text: 'Account deactivated',
+      show_alert: true,
+    });
+    await denyDeactivated(chatId);
     return;
   }
 
@@ -240,6 +417,13 @@ bot.on('message', async (msg) => {
   const text = typeof msg.text === 'string' ? msg.text.trim() : '';
 
   if (!chatId || !text) {
+    return;
+  }
+
+  registerKnownUser(msg);
+
+  if (isDeactivatedUser(msg)) {
+    await denyDeactivated(chatId);
     return;
   }
 
