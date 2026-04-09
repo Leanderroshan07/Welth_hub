@@ -79,6 +79,21 @@ async function sendMainMenu(chatId, text = 'Welcome! Choose a module:') {
   });
 }
 
+async function clearClickedCallbackMessage(query) {
+  const chatId = query?.message?.chat?.id;
+  const messageId = query?.message?.message_id;
+
+  if (!chatId || !messageId) {
+    return;
+  }
+
+  try {
+    await bot.deleteMessage(chatId, messageId);
+  } catch (error) {
+    // Ignore cleanup failures (e.g. message already deleted).
+  }
+}
+
 bot.onText(/^\/start$/, async (msg) => {
   const chatId = msg.chat.id;
 
@@ -142,6 +157,7 @@ bot.on('callback_query', async (query) => {
   }
 
   await bot.answerCallbackQuery(query.id);
+  await clearClickedCallbackMessage(query);
 
   if (data === MAIN_CALLBACKS.MAIN_MENU) {
     sessions.delete(chatId);

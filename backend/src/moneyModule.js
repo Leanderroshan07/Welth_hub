@@ -178,8 +178,8 @@ async function insertMoneyEntry({ session, supabase }) {
     amount,
     account_name: session.payload.account_name,
     sub_account_id: session.payload.sub_account_id || null,
-    sub_category_id: session.payload.sub_category_id || null,
-    category: session.payload.category || null,
+    sub_category_id: session.action === 'expense' ? session.payload.sub_category_id || null : null,
+    category: session.action === 'expense' ? session.payload.category || null : null,
     note: session.payload.note || null,
     occurred_at: new Date().toISOString(),
   });
@@ -206,9 +206,14 @@ async function handleMoneyCallbackQuery({ chatId, data, sessions, bot }) {
 
     if (!session.refs.subAccounts.length) {
       session.payload.sub_account_id = null;
-      session.step = 'category';
+      session.step = session.action === 'expense' ? 'category' : 'note';
       sessions.set(chatId, session);
-      await sendCategoryPicker({ chatId, bot, categories: session.refs.categories });
+
+      if (session.action === 'expense') {
+        await sendCategoryPicker({ chatId, bot, categories: session.refs.categories });
+      } else {
+        await bot.sendMessage(chatId, 'Enter note (or type skip):');
+      }
       return true;
     }
 
@@ -266,17 +271,27 @@ async function handleMoneyCallbackQuery({ chatId, data, sessions, bot }) {
     }
 
     session.payload.sub_account_id = subAccount.id;
-    session.step = 'category';
+    session.step = session.action === 'expense' ? 'category' : 'note';
     sessions.set(chatId, session);
-    await sendCategoryPicker({ chatId, bot, categories: session.refs.categories });
+
+    if (session.action === 'expense') {
+      await sendCategoryPicker({ chatId, bot, categories: session.refs.categories });
+    } else {
+      await bot.sendMessage(chatId, 'Enter note (or type skip):');
+    }
     return true;
   }
 
   if (data === MONEY_CALLBACKS.SKIP_SUB_ACCOUNT && session.step === 'sub_account') {
     session.payload.sub_account_id = null;
-    session.step = 'category';
+    session.step = session.action === 'expense' ? 'category' : 'note';
     sessions.set(chatId, session);
-    await sendCategoryPicker({ chatId, bot, categories: session.refs.categories });
+
+    if (session.action === 'expense') {
+      await sendCategoryPicker({ chatId, bot, categories: session.refs.categories });
+    } else {
+      await bot.sendMessage(chatId, 'Enter note (or type skip):');
+    }
     return true;
   }
 
@@ -371,7 +386,7 @@ async function handleMoneyMessage({ chatId, text, sessions, bot, supabase, sendM
       return true;
     }
 
-    if (!session.refs.categories.length) {
+    if (session.action === 'expense' && !session.refs.categories.length) {
       await bot.sendMessage(chatId, 'No categories found. Add categories first in the app Cash Flow page.');
       sessions.delete(chatId);
       await sendMainMenu(chatId, 'Choose a module:');
