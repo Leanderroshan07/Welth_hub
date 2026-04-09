@@ -1,0 +1,19 @@
+{
+  "name": "vaazhi-backend",
+  "private": true,
+  "version": "1.0.0",
+  "main": "src/supabaseClient.js",
+  "scripts": {
+    "start": "node src/telegramBot.js",
+    "start:bot": "node src/telegramBot.js",
+    "start:client": "node src/supabaseClient.js"
+  },
+  "dependencies": {
+    "@supabase/supabase-js": "^2.56.0",
+    "dotenv": "^16.4.5",
+    "node-telegram-bot-api": "^0.66.0"
+  },
+  "devDependencies": {
+    "supabase": "^2.87.2"
+  }
+}
