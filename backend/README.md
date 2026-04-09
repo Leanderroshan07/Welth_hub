@@ -71,5 +71,5 @@ npm start
 - Use `/id` in the bot chat to see your Telegram user ID and username.
 - Admin commands:
 	- `/users` shows known logged-in users.
-	- `/deactivate <telegram_user_id>` blocks a user.
-	- `/activate <telegram_user_id>` re-enables a user.
+  - `/deactivate` shows active users; click to deactivate.
+  - `/activate` shows deactivated users; click to re-enable.

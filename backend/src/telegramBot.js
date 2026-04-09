@@ -147,6 +147,11 @@ const MAIN_CALLBACKS = {
   MAIN_MENU: 'menu:main',
 };
 
+const ADMIN_CALLBACKS = {
+  DEACTIVATE_USER: 'admin:deactivate_user',
+  ACTIVATE_USER: 'admin:activate_user',
+};
+
 function getMainMenuKeyboard() {
   return {
     inline_keyboard: [
@@ -160,6 +165,15 @@ async function sendMainMenu(chatId, text = 'Welcome! Choose a module:') {
   await bot.sendMessage(chatId, text, {
     reply_markup: getMainMenuKeyboard(),
   });
+}
+
+function parsePick(data, prefix) {
+  const expected = `${prefix}:`;
+  if (!String(data || '').startsWith(expected)) {
+    return null;
+  }
+
+  return data.slice(expected.length);
 }
 
 async function clearClickedCallbackMessage(query) {
@@ -245,7 +259,7 @@ bot.onText(/^\/users$/, async (msg) => {
   await bot.sendMessage(chatId, buildKnownUsersText());
 });
 
-bot.onText(/^\/deactivate(?:\s+(\d+))?$/, async (msg, match) => {
+bot.onText(/^\/deactivate$/, async (msg) => {
   const chatId = msg.chat.id;
 
   if (!isAdminUser(msg)) {
@@ -253,28 +267,37 @@ bot.onText(/^\/deactivate(?:\s+(\d+))?$/, async (msg, match) => {
     return;
   }
 
-  const targetId = Number(match?.[1]);
-  if (!Number.isInteger(targetId) || targetId <= 0) {
-    await bot.sendMessage(chatId, 'Usage: /deactivate <telegram_user_id>');
+  registerKnownUser(msg);
+
+  if (knownUsers.size === 0) {
+    await bot.sendMessage(chatId, 'No users to deactivate.');
     return;
   }
 
-  deactivatedUserIds.add(targetId);
-  secretAuthorizedUserIds.delete(targetId);
+  const activeUsers = Array.from(knownUsers.values()).filter(
+    (user) => user.status === 'active',
+  );
 
-  const known = knownUsers.get(targetId);
-  if (known) {
-    knownUsers.set(targetId, {
-      ...known,
-      status: 'deactivated',
-      lastSeenAt: new Date().toISOString(),
-    });
+  if (activeUsers.length === 0) {
+    await bot.sendMessage(chatId, 'All known users are already deactivated.');
+    return;
   }
 
-  await bot.sendMessage(chatId, `User ${targetId} deactivated.`);
+  const keyboard = {
+    inline_keyboard: activeUsers.map((user) => [
+      {
+        text: `${user.userId} - ${user.username}`,
+        callback_data: `${ADMIN_CALLBACKS.DEACTIVATE_USER}:${user.userId}`,
+      },
+    ]),
+  };
+
+  await bot.sendMessage(chatId, 'Select user to deactivate:', {
+    reply_markup: keyboard,
+  });
 });
 
-bot.onText(/^\/activate(?:\s+(\d+))?$/, async (msg, match) => {
+bot.onText(/^\/activate$/, async (msg) => {
   const chatId = msg.chat.id;
 
   if (!isAdminUser(msg)) {
@@ -282,24 +305,34 @@ bot.onText(/^\/activate(?:\s+(\d+))?$/, async (msg, match) => {
     return;
   }
 
-  const targetId = Number(match?.[1]);
-  if (!Number.isInteger(targetId) || targetId <= 0) {
-    await bot.sendMessage(chatId, 'Usage: /activate <telegram_user_id>');
+  registerKnownUser(msg);
+
+  if (knownUsers.size === 0) {
+    await bot.sendMessage(chatId, 'No users to activate.');
     return;
   }
 
-  deactivatedUserIds.delete(targetId);
+  const deactivatedUsers = Array.from(knownUsers.values()).filter(
+    (user) => user.status === 'deactivated',
+  );
 
-  const known = knownUsers.get(targetId);
-  if (known) {
-    knownUsers.set(targetId, {
-      ...known,
-      status: 'active',
-      lastSeenAt: new Date().toISOString(),
-    });
+  if (deactivatedUsers.length === 0) {
+    await bot.sendMessage(chatId, 'All known users are already active.');
+    return;
   }
 
-  await bot.sendMessage(chatId, `User ${targetId} activated.`);
+  const keyboard = {
+    inline_keyboard: deactivatedUsers.map((user) => [
+      {
+        text: `${user.userId} - ${user.username}`,
+        callback_data: `${ADMIN_CALLBACKS.ACTIVATE_USER}:${user.userId}`,
+      },
+    ]),
+  };
+
+  await bot.sendMessage(chatId, 'Select user to activate:', {
+    reply_markup: keyboard,
+  });
 });
 
 bot.on('callback_query', async (query) => {
@@ -372,6 +405,63 @@ bot.on('callback_query', async (query) => {
   if (data === MONEY_CALLBACKS.BACK || data === TASK_CALLBACKS.BACK) {
     sessions.delete(chatId);
     await sendMainMenu(chatId, 'Choose a module:');
+    return;
+  }
+
+  const deactivateUserId = parsePick(data, ADMIN_CALLBACKS.DEACTIVATE_USER);
+  if (deactivateUserId) {
+    if (!isAdminUser(query)) {
+      await bot.answerCallbackQuery(query.id, {
+        text: 'Only admins can deactivate',
+        show_alert: true,
+      });
+      return;
+    }
+
+    const targetId = Number(deactivateUserId);
+    deactivatedUserIds.add(targetId);
+    secretAuthorizedUserIds.delete(targetId);
+
+    const known = knownUsers.get(targetId);
+    if (known) {
+      knownUsers.set(targetId, {
+        ...known,
+        status: 'deactivated',
+        lastSeenAt: new Date().toISOString(),
+      });
+    }
+
+    await bot.answerCallbackQuery(query.id);
+    await clearClickedCallbackMessage(query);
+    await bot.sendMessage(chatId, `User ${targetId} deactivated.`);
+    return;
+  }
+
+  const activateUserId = parsePick(data, ADMIN_CALLBACKS.ACTIVATE_USER);
+  if (activateUserId) {
+    if (!isAdminUser(query)) {
+      await bot.answerCallbackQuery(query.id, {
+        text: 'Only admins can activate',
+        show_alert: true,
+      });
+      return;
+    }
+
+    const targetId = Number(activateUserId);
+    deactivatedUserIds.delete(targetId);
+
+    const known = knownUsers.get(targetId);
+    if (known) {
+      knownUsers.set(targetId, {
+        ...known,
+        status: 'active',
+        lastSeenAt: new Date().toISOString(),
+      });
+    }
+
+    await bot.answerCallbackQuery(query.id);
+    await clearClickedCallbackMessage(query);
+    await bot.sendMessage(chatId, `User ${targetId} activated.`);
     return;
   }
 
