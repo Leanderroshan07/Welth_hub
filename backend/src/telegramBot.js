@@ -247,6 +247,19 @@ bot.onText(/^\/id$/, async (msg) => {
   );
 });
 
+bot.onText(/^\/amiadmin$/, async (msg) => {
+  const chatId = msg.chat.id;
+  const isAdmin = isAdminUser(msg);
+
+  registerKnownUser(msg);
+
+  if (isAdmin) {
+    await bot.sendMessage(chatId, 'Yes, you are an admin.');
+  } else {
+    await bot.sendMessage(chatId, 'No, you are not an admin.');
+  }
+});
+
 bot.onText(/^\/users$/, async (msg) => {
   const chatId = msg.chat.id;
 
@@ -270,7 +283,7 @@ bot.onText(/^\/deactivate$/, async (msg) => {
   registerKnownUser(msg);
 
   if (knownUsers.size === 0) {
-    await bot.sendMessage(chatId, 'No users to deactivate.');
+    await bot.sendMessage(chatId, 'No users have logged in yet. No users to deactivate.');
     return;
   }
 
@@ -279,7 +292,7 @@ bot.onText(/^\/deactivate$/, async (msg) => {
   );
 
   if (activeUsers.length === 0) {
-    await bot.sendMessage(chatId, 'All known users are already deactivated.');
+    await bot.sendMessage(chatId, 'All known users are already deactivated. No active users to deactivate.');
     return;
   }
 
@@ -308,7 +321,7 @@ bot.onText(/^\/activate$/, async (msg) => {
   registerKnownUser(msg);
 
   if (knownUsers.size === 0) {
-    await bot.sendMessage(chatId, 'No users to activate.');
+    await bot.sendMessage(chatId, 'No users have logged in yet. No users to activate.');
     return;
   }
 
@@ -317,7 +330,7 @@ bot.onText(/^\/activate$/, async (msg) => {
   );
 
   if (deactivatedUsers.length === 0) {
-    await bot.sendMessage(chatId, 'All known users are already active.');
+    await bot.sendMessage(chatId, 'All known users are already active. No deactivated users to activate.');
     return;
   }
 

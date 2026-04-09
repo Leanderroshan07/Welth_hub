@@ -69,6 +69,7 @@ npm start
 - User can send `/cancel` anytime to stop current input flow.
 - If `AUTHORIZED_TELEGRAM_USER_IDS` is empty or missing, the bot asks for the access key instead.
 - Use `/id` in the bot chat to see your Telegram user ID and username.
+- Use `/amiadmin` to check if you are an admin.
 - Admin commands:
 	- `/users` shows known logged-in users.
   - `/deactivate` shows active users; click to deactivate.
