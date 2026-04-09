@@ -18,8 +18,10 @@ Create `backend/.env` with:
 - `SUPABASE_ANON_KEY`
 - `TELEGRAM_BOT_TOKEN`
 - `AUTHORIZED_TELEGRAM_USER_IDS`
+- `TELEGRAM_ACCESS_KEY` or `TELEGRAM_SECRET_KEY`
 
 `AUTHORIZED_TELEGRAM_USER_IDS` should be a comma-separated list of Telegram numeric user IDs. Only those users can use the bot.
+If you want other users to get in without adding them to the ID list, set `TELEGRAM_ACCESS_KEY` and have them send that key in chat.
 
 Example:
 
@@ -63,5 +65,5 @@ npm start
 - Money entry types use: `income`, `expense`, `transfer`
 - Task types use: `task`, `routine`
 - User can send `/cancel` anytime to stop current input flow.
-- If `AUTHORIZED_TELEGRAM_USER_IDS` is empty or missing, the bot rejects all users.
+- If `AUTHORIZED_TELEGRAM_USER_IDS` is empty or missing, the bot asks for the access key instead.
 - Use `/id` in the bot chat to see your Telegram user ID and username.

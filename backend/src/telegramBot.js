@@ -6,10 +6,12 @@ const { MONEY_CALLBACKS, getMoneyMenuKeyboard, beginMoneyAction, handleMoneyCall
 const { TASK_CALLBACKS, getTaskMenuKeyboard, beginTaskAction, handleTaskMessage, sendTaskPreview } = require('./taskModule');
 
 const token = process.env.TELEGRAM_BOT_TOKEN;
+const accessKey = String(process.env.TELEGRAM_ACCESS_KEY || process.env.TELEGRAM_SECRET_KEY || '').trim();
 const authorizedUserIds = String(process.env.AUTHORIZED_TELEGRAM_USER_IDS || '')
   .split(',')
   .map((value) => Number(value.trim()))
   .filter((value) => Number.isInteger(value) && value > 0);
+const secretAuthorizedUserIds = new Set();
 
 if (!token) {
   throw new Error('Missing TELEGRAM_BOT_TOKEN environment variable.');
@@ -23,14 +25,36 @@ function isAuthorizedUser(messageOrQuery) {
   }
 
   if (authorizedUserIds.length === 0) {
+    return secretAuthorizedUserIds.has(userId);
+  }
+
+  return authorizedUserIds.includes(userId) || secretAuthorizedUserIds.has(userId);
+}
+
+async function promptForAccess(chatId) {
+  if (accessKey) {
+    await bot.sendMessage(chatId, 'You are not on the authorized list. Send the access key to continue.');
+    return;
+  }
+
+  await bot.sendMessage(chatId, 'You are not authorized to use this bot.');
+}
+
+async function handleAccessAttempt({ chatId, userId, text }) {
+  if (!accessKey) {
+    await promptForAccess(chatId);
     return false;
   }
 
-  return authorizedUserIds.includes(userId);
-}
+  if (String(text || '').trim() !== accessKey) {
+    await promptForAccess(chatId);
+    return false;
+  }
 
-async function denyAccess(chatId) {
-  await bot.sendMessage(chatId, 'You are not authorized to use this bot.');
+  secretAuthorizedUserIds.add(userId);
+  sessions.delete(chatId);
+  await sendMainMenu(chatId, 'Access granted. Choose a module:');
+  return true;
 }
 
 const bot = new TelegramBot(token, { polling: true });
@@ -59,7 +83,7 @@ bot.onText(/^\/start$/, async (msg) => {
   const chatId = msg.chat.id;
 
   if (!isAuthorizedUser(msg)) {
-    await denyAccess(chatId);
+    await promptForAccess(chatId);
     return;
   }
 
@@ -71,7 +95,7 @@ bot.onText(/^\/cancel$/, async (msg) => {
   const chatId = msg.chat.id;
 
   if (!isAuthorizedUser(msg)) {
-    await denyAccess(chatId);
+    await promptForAccess(chatId);
     return;
   }
 
@@ -107,9 +131,13 @@ bot.on('callback_query', async (query) => {
 
   if (!isAuthorizedUser(query)) {
     await bot.answerCallbackQuery(query.id, {
-      text: 'Not authorized',
+      text: accessKey ? 'Send the access key in chat first' : 'Not authorized',
       show_alert: true,
     });
+
+    if (accessKey) {
+      await promptForAccess(chatId);
+    }
     return;
   }
 
@@ -192,6 +220,7 @@ bot.on('callback_query', async (query) => {
 
 bot.on('message', async (msg) => {
   const chatId = msg.chat?.id;
+  const userId = msg.from?.id;
   const text = typeof msg.text === 'string' ? msg.text.trim() : '';
 
   if (!chatId || !text) {
@@ -199,9 +228,18 @@ bot.on('message', async (msg) => {
   }
 
   if (!isAuthorizedUser(msg)) {
-    if (!text.startsWith('/')) {
-      await denyAccess(chatId);
+    if (text.startsWith('/')) {
+      if (text === '/start') {
+        await promptForAccess(chatId);
+      }
+      return;
     }
+
+    const accessGranted = await handleAccessAttempt({ chatId, userId, text });
+    if (accessGranted) {
+      return;
+    }
+
     return;
   }
 
