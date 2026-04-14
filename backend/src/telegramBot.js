@@ -384,7 +384,8 @@ function attachHandlers() {
 
 
     await bot.answerCallbackQuery(query.id);
-    await clearClickedCallbackMessage(query);
+    // Run message cleanup in background (don't await)
+    clearClickedCallbackMessage(query).catch(() => {});
 
     // Goal Tracking
     const userId = query.from?.id;
@@ -453,7 +454,8 @@ function attachHandlers() {
       }
 
       await bot.answerCallbackQuery(query.id);
-      await clearClickedCallbackMessage(query);
+      // Run message cleanup in background
+      clearClickedCallbackMessage(query).catch(() => {});
       await bot.sendMessage(chatId, `User ${targetId} deactivated.`);
       return;
     }
@@ -481,7 +483,8 @@ function attachHandlers() {
       }
 
       await bot.answerCallbackQuery(query.id);
-      await clearClickedCallbackMessage(query);
+      // Run message cleanup in background
+      clearClickedCallbackMessage(query).catch(() => {});
       await bot.sendMessage(chatId, `User ${targetId} activated.`);
       return;
     }
@@ -728,7 +731,7 @@ async function processWebhookUpdate(update) {
       // Main menu
       if (data === MAIN_CALLBACKS.MAIN_MENU) {
         sessions.delete(chatId);
-        await clearClickedCallbackMessage(query);
+        clearClickedCallbackMessage(query).catch(() => {});
         await sendMainMenu(chatId, 'Choose a module:');
         return;
       }
@@ -764,7 +767,7 @@ async function processWebhookUpdate(update) {
       // Back buttons
       if (data === MONEY_CALLBACKS.BACK || data === TASK_CALLBACKS.BACK) {
         sessions.delete(chatId);
-        await clearClickedCallbackMessage(query);
+        clearClickedCallbackMessage(query).catch(() => {});
         await sendMainMenu(chatId, 'Choose a module:');
         return;
       }
@@ -772,13 +775,13 @@ async function processWebhookUpdate(update) {
       // Delegate to module handlers
       const moneyHandled = await handleMoneyCallbackQuery({ chatId, data, sessions, bot });
       if (moneyHandled) {
-        await clearClickedCallbackMessage(query);
+        clearClickedCallbackMessage(query).catch(() => {});
         return;
       }
 
       const goalHandled = await handleGoalCallbackQuery({ chatId, data, sessions, bot, supabase });
       if (goalHandled) {
-        await clearClickedCallbackMessage(query);
+        clearClickedCallbackMessage(query).catch(() => {});
         return;
       }
 
