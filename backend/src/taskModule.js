@@ -23,11 +23,13 @@ const TASK_CALLBACKS = {
   PICK_DUE_TOMORROW: 'task:due_tomorrow',
   PICK_DUE_NEXT_WEEK: 'task:due_next_week',
   PICK_DUE_CUSTOM: 'task:due_custom',
+  SKIP_DUE_DATE: 'task:skip_due_date',
   // Time picker
   PICK_TIME_MORNING: 'task:time_morning',
   PICK_TIME_AFTERNOON: 'task:time_afternoon',
   PICK_TIME_EVENING: 'task:time_evening',
   PICK_TIME_NIGHT: 'task:time_night',
+  SKIP_TIME: 'task:skip_time',
   // Filters
   FILTER_ALL: 'task:filter_all',
   FILTER_TODAY: 'task:filter_today',
@@ -87,6 +89,7 @@ function getDatePickerKeyboard() {
         { text: 'Next Week', callback_data: TASK_CALLBACKS.PICK_DUE_NEXT_WEEK },
         { text: 'Custom Date', callback_data: TASK_CALLBACKS.PICK_DUE_CUSTOM },
       ],
+      [{ text: '⏭️ Skip', callback_data: TASK_CALLBACKS.SKIP_DUE_DATE }],
     ],
   };
 }
@@ -102,6 +105,7 @@ function getTimePickerKeyboard() {
         { text: '🌆 Evening (18-21)', callback_data: TASK_CALLBACKS.PICK_TIME_EVENING },
         { text: '🌙 Night (21-6)', callback_data: TASK_CALLBACKS.PICK_TIME_NIGHT },
       ],
+      [{ text: '⏭️ Skip', callback_data: TASK_CALLBACKS.SKIP_TIME }],
     ],
   };
 }
@@ -311,6 +315,17 @@ async function handleTaskCallbackQuery({ chatId, data, sessions, bot }) {
     return true;
   }
 
+  // Skip due date callback
+  if (data === TASK_CALLBACKS.SKIP_DUE_DATE) {
+    session.payload.due_date = null;
+    session.step = 'due_time_picker';
+    sessions.set(chatId, session);
+    await bot.sendMessage(chatId, 'What time should the reminder be?', {
+      reply_markup: getTimePickerKeyboard(),
+    });
+    return true;
+  }
+
   // Time picker callbacks
   if (data === TASK_CALLBACKS.PICK_TIME_MORNING) {
     session.payload.due_time = getTimeFromPeriod('morning');
@@ -320,6 +335,8 @@ async function handleTaskCallbackQuery({ chatId, data, sessions, bot }) {
     session.payload.due_time = getTimeFromPeriod('evening');
   } else if (data === TASK_CALLBACKS.PICK_TIME_NIGHT) {
     session.payload.due_time = getTimeFromPeriod('night');
+  } else if (data === TASK_CALLBACKS.SKIP_TIME) {
+    session.payload.due_time = null;
   } else {
     return false;
   }
