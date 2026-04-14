@@ -198,11 +198,17 @@ function beginTaskAction({ chatId, action, sessions, bot }) {
     payload: {
       task_type: taskType,
       task_date: getTodayDateString(),
-      due_date: getTodayDateString(),
+      due_date: null,
+      due_time: null,
+      routine_frequency: null,
+      routine_days: [],
+      routine_month_day: null,
+      description: null,
     },
   });
 
-  bot.sendMessage(chatId, `Enter ${taskType} title:`);
+  const emoji = taskType === 'routine' ? '🔄' : '✅';
+  bot.sendMessage(chatId, `${emoji} Enter ${taskType} title:`);
 }
 
 async function handleTaskCallbackQuery({ chatId, data, sessions, bot }) {
@@ -217,25 +223,31 @@ async function handleTaskCallbackQuery({ chatId, data, sessions, bot }) {
     session.payload.routine_frequency = 'daily';
     session.step = 'routine_days';
     sessions.set(chatId, session);
-    await bot.sendMessage(chatId, 'Select routine days:', {
-      reply_markup: getDayPickerKeyboard(),
-    });
+    await bot.sendMessage(
+      chatId,
+      '📅 Select days routine repeats (click to toggle):\n\nWhen done, click ✅ Done',
+      { reply_markup: getDayPickerKeyboard() }
+    );
     return true;
   } else if (data === TASK_CALLBACKS.ROUTINE_FREQ_WEEKLY) {
     session.payload.routine_frequency = 'weekly';
     session.step = 'routine_days';
     sessions.set(chatId, session);
-    await bot.sendMessage(chatId, 'Select routine days:', {
-      reply_markup: getDayPickerKeyboard(),
-    });
+    await bot.sendMessage(
+      chatId,
+      '📅 Select days routine repeats (click to toggle):\n\nWhen done, click ✅ Done',
+      { reply_markup: getDayPickerKeyboard() }
+    );
     return true;
   } else if (data === TASK_CALLBACKS.ROUTINE_FREQ_MONTHLY) {
     session.payload.routine_frequency = 'monthly';
     session.step = 'routine_month_day';
     sessions.set(chatId, session);
-    await bot.sendMessage(chatId, 'Select day of month:', {
-      reply_markup: getMonthCalendarKeyboard(),
-    });
+    await bot.sendMessage(
+      chatId,
+      '📅 Select which day of month (1-31):\n\nClick a number button:',
+      { reply_markup: getMonthCalendarKeyboard() }
+    );
     return true;
   }
 
@@ -254,23 +266,28 @@ async function handleTaskCallbackQuery({ chatId, data, sessions, bot }) {
     }
     sessions.set(chatId, session);
     const selectedDayCallbacks = session.payload.routine_days.map(day => `routine:day_${day}`);
-    await bot.sendMessage(chatId, `Days selected: ${session.payload.routine_days.join(', ') || 'None'}\n\nSelect more or click Done:`, {
-      reply_markup: getDayPickerKeyboard(selectedDayCallbacks),
-    });
+    const daysText = session.payload.routine_days.length > 0 ? session.payload.routine_days.join(', ') : 'None selected';
+    await bot.sendMessage(
+      chatId,
+      `✅ Days: ${daysText}\n\nClick more or tap ✅ Done to continue:`,
+      { reply_markup: getDayPickerKeyboard(selectedDayCallbacks) }
+    );
     return true;
   }
 
   // Routine days done callback
   if (data === TASK_CALLBACKS.ROUTINE_DAYS_DONE) {
     if (!session.payload.routine_days || session.payload.routine_days.length === 0) {
-      await bot.sendMessage(chatId, 'Please select at least one day.');
+      await bot.sendMessage(chatId, '⚠️ Please select at least one day.');
       return true;
     }
     session.step = 'due_date_picker';
     sessions.set(chatId, session);
-    await bot.sendMessage(chatId, 'When is this routine due?', {
-      reply_markup: getDatePickerKeyboard(),
-    });
+    await bot.sendMessage(
+      chatId,
+      `✅ Routine set for: ${session.payload.routine_days.join(', ')}\n\nWhen does this routine start?`,
+      { reply_markup: getDatePickerKeyboard() }
+    );
     return true;
   }
 
@@ -281,9 +298,11 @@ async function handleTaskCallbackQuery({ chatId, data, sessions, bot }) {
     session.payload.routine_month_day = dayNum;
     session.step = 'due_date_picker';
     sessions.set(chatId, session);
-    await bot.sendMessage(chatId, 'When is this routine due?', {
-      reply_markup: getDatePickerKeyboard(),
-    });
+    await bot.sendMessage(
+      chatId,
+      `📅 Month day set to: ${dayNum}\n\nNow select when this routine starts:`,
+      { reply_markup: getDatePickerKeyboard() }
+    );
     return true;
   }
 
@@ -309,9 +328,12 @@ async function handleTaskCallbackQuery({ chatId, data, sessions, bot }) {
     session.payload.due_date = dueDate;
     session.step = 'due_time_picker';
     sessions.set(chatId, session);
-    await bot.sendMessage(chatId, 'What time should the reminder be?', {
-      reply_markup: getTimePickerKeyboard(),
-    });
+    const dateLabel = dueDatePickData === 'today' ? 'Today' : dueDatePickData === 'tomorrow' ? 'Tomorrow' : 'Next Week';
+    await bot.sendMessage(
+      chatId,
+      `📅 Start date: ${dateLabel}\n\nWhen should reminders be sent?`,
+      { reply_markup: getTimePickerKeyboard() }
+    );
     return true;
   }
 
@@ -320,30 +342,46 @@ async function handleTaskCallbackQuery({ chatId, data, sessions, bot }) {
     session.payload.due_date = null;
     session.step = 'due_time_picker';
     sessions.set(chatId, session);
-    await bot.sendMessage(chatId, 'What time should the reminder be?', {
-      reply_markup: getTimePickerKeyboard(),
-    });
+    await bot.sendMessage(
+      chatId,
+      '⏭️ No due date set.\n\nWhen should reminders be sent?',
+      { reply_markup: getTimePickerKeyboard() }
+    );
     return true;
   }
 
   // Time picker callbacks
+  let timeSet = false;
   if (data === TASK_CALLBACKS.PICK_TIME_MORNING) {
     session.payload.due_time = getTimeFromPeriod('morning');
+    timeSet = true;
   } else if (data === TASK_CALLBACKS.PICK_TIME_AFTERNOON) {
     session.payload.due_time = getTimeFromPeriod('afternoon');
+    timeSet = true;
   } else if (data === TASK_CALLBACKS.PICK_TIME_EVENING) {
     session.payload.due_time = getTimeFromPeriod('evening');
+    timeSet = true;
   } else if (data === TASK_CALLBACKS.PICK_TIME_NIGHT) {
     session.payload.due_time = getTimeFromPeriod('night');
+    timeSet = true;
   } else if (data === TASK_CALLBACKS.SKIP_TIME) {
     session.payload.due_time = null;
+    timeSet = true;
   } else {
+    return false;
+  }
+
+  if (!timeSet) {
     return false;
   }
 
   session.step = 'description';
   sessions.set(chatId, session);
-  await bot.sendMessage(chatId, 'Enter description (or type skip):');
+  const taskType = session.payload.task_type === 'routine' ? 'Routine' : 'Task';
+  await bot.sendMessage(
+    chatId,
+    `✅ Almost done! Add optional description (or type "skip"):\n\n${taskType} name: ${session.payload.title}`
+  );
   return true;
 }
 
