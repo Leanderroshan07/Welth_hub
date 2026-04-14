@@ -2,6 +2,10 @@ const TASK_CALLBACKS = {
   MENU: 'menu:tasks',
   ADD_TASK: 'task:add_task',
   ADD_ROUTINE: 'task:add_routine',
+  ADD_CHALLENGE: 'task:add_challenge',
+  VIEW_TASKS: 'task:view_tasks',
+  VIEW_CHALLENGES: 'task:view_challenges',
+  VIEW_ROUTINES: 'task:view_routines',
   BACK: 'menu:main',
   // Routine frequency
   ROUTINE_FREQ_DAILY: 'routine:freq_daily',
@@ -30,22 +34,38 @@ const TASK_CALLBACKS = {
   PICK_TIME_EVENING: 'task:time_evening',
   PICK_TIME_NIGHT: 'task:time_night',
   SKIP_TIME: 'task:skip_time',
+  // Challenge duration
+  CHALLENGE_DURATION_7: 'challenge:duration_7',
+  CHALLENGE_DURATION_14: 'challenge:duration_14',
+  CHALLENGE_DURATION_30: 'challenge:duration_30',
+  CHALLENGE_DURATION_CUSTOM: 'challenge:duration_custom',
   // Filters
   FILTER_ALL: 'task:filter_all',
   FILTER_TODAY: 'task:filter_today',
   FILTER_TOMORROW: 'task:filter_tomorrow',
   FILTER_WEEK: 'task:filter_week',
   FILTER_ROUTINES: 'task:filter_routines',
+  FILTER_CHALLENGES: 'task:filter_challenges',
 };
 
 function getTaskMenuKeyboard() {
   return {
     inline_keyboard: [
       [
-        { text: 'Add Task', callback_data: TASK_CALLBACKS.ADD_TASK },
-        { text: 'Add Routine', callback_data: TASK_CALLBACKS.ADD_ROUTINE },
+        { text: '✅ Add Task', callback_data: TASK_CALLBACKS.ADD_TASK },
+        { text: '🔄 Add Routine', callback_data: TASK_CALLBACKS.ADD_ROUTINE },
       ],
-      [{ text: 'Back', callback_data: TASK_CALLBACKS.BACK }],
+      [
+        { text: '🏆 Add Challenge', callback_data: TASK_CALLBACKS.ADD_CHALLENGE },
+      ],
+      [
+        { text: '📋 View Tasks', callback_data: TASK_CALLBACKS.VIEW_TASKS },
+        { text: '📅 View Routines', callback_data: TASK_CALLBACKS.VIEW_ROUTINES },
+      ],
+      [
+        { text: '🎯 View Challenges', callback_data: TASK_CALLBACKS.VIEW_CHALLENGES },
+      ],
+      [{ text: '⬅️ Back', callback_data: TASK_CALLBACKS.BACK }],
     ],
   };
 }
@@ -164,6 +184,23 @@ function getFrequencyPickerKeyboard() {
   };
 }
 
+function getChallengeDurationKeyboard() {
+  return {
+    inline_keyboard: [
+      [
+        { text: '7 Days', callback_data: TASK_CALLBACKS.CHALLENGE_DURATION_7 },
+        { text: '14 Days', callback_data: TASK_CALLBACKS.CHALLENGE_DURATION_14 },
+      ],
+      [
+        { text: '30 Days', callback_data: TASK_CALLBACKS.CHALLENGE_DURATION_30 },
+      ],
+      [
+        { text: 'Custom Days', callback_data: TASK_CALLBACKS.CHALLENGE_DURATION_CUSTOM },
+      ],
+    ],
+  };
+}
+
 function getTimeFromPeriod(period) {
   const times = {
     morning: '09:00',
@@ -188,13 +225,16 @@ function isValidDateString(value) {
   return date.getFullYear() === y && date.getMonth() + 1 === m && date.getDate() === d;
 }
 
-function beginTaskAction({ chatId, action, sessions, bot }) {
-  const taskType = action === 'add_routine' ? 'routine' : 'task';
+function beginTaskAction({ chatId, action, sessions, bot, userId }) {
+  let taskType = 'task';
+  if (action === 'add_routine') taskType = 'routine';
+  if (action === 'add_challenge') taskType = 'challenge';
 
   sessions.set(chatId, {
     module: 'task',
     action,
     step: 'title',
+    userId,
     payload: {
       task_type: taskType,
       task_date: getTodayDateString(),
@@ -203,19 +243,66 @@ function beginTaskAction({ chatId, action, sessions, bot }) {
       routine_frequency: null,
       routine_days: [],
       routine_month_day: null,
+      challenge_duration_days: null,
+      challenge_end_date: null,
       description: null,
+      user_id: userId,
     },
   });
 
-  const emoji = taskType === 'routine' ? '🔄' : '✅';
-  bot.sendMessage(chatId, `${emoji} Enter ${taskType} title:`);
+  const emoji = taskType === 'routine' ? '🔄' : taskType === 'challenge' ? '🏆' : '✅';
+  bot.sendMessage(chatId, `${emoji} Enter ${taskType} ${taskType === 'challenge' ? 'name' : 'title'}:`);
 }
 
-async function handleTaskCallbackQuery({ chatId, data, sessions, bot }) {
+async function handleTaskCallbackQuery({ chatId, data, sessions, bot, userId }) {
   const session = sessions.get(chatId);
 
   if (!session || session.module !== 'task') {
     return false;
+  }
+
+  // Challenge duration callbacks
+  if (data === TASK_CALLBACKS.CHALLENGE_DURATION_7) {
+    session.payload.challenge_duration_days = 7;
+    const endDate = new Date();
+    endDate.setDate(endDate.getDate() + 7);
+    const offset = endDate.getTimezoneOffset() * 60000;
+    session.payload.challenge_end_date = new Date(endDate.getTime() - offset).toISOString().split('T')[0];
+    session.step = 'due_date_picker';
+    sessions.set(chatId, session);
+    await bot.sendMessage(chatId, '✅ Challenge duration: 7 days\n\nWhen should this challenge start?', {
+      reply_markup: getDatePickerKeyboard(),
+    });
+    return true;
+  } else if (data === TASK_CALLBACKS.CHALLENGE_DURATION_14) {
+    session.payload.challenge_duration_days = 14;
+    const endDate = new Date();
+    endDate.setDate(endDate.getDate() + 14);
+    const offset = endDate.getTimezoneOffset() * 60000;
+    session.payload.challenge_end_date = new Date(endDate.getTime() - offset).toISOString().split('T')[0];
+    session.step = 'due_date_picker';
+    sessions.set(chatId, session);
+    await bot.sendMessage(chatId, '✅ Challenge duration: 14 days\n\nWhen should this challenge start?', {
+      reply_markup: getDatePickerKeyboard(),
+    });
+    return true;
+  } else if (data === TASK_CALLBACKS.CHALLENGE_DURATION_30) {
+    session.payload.challenge_duration_days = 30;
+    const endDate = new Date();
+    endDate.setDate(endDate.getDate() + 30);
+    const offset = endDate.getTimezoneOffset() * 60000;
+    session.payload.challenge_end_date = new Date(endDate.getTime() - offset).toISOString().split('T')[0];
+    session.step = 'due_date_picker';
+    sessions.set(chatId, session);
+    await bot.sendMessage(chatId, '✅ Challenge duration: 30 days\n\nWhen should this challenge start?', {
+      reply_markup: getDatePickerKeyboard(),
+    });
+    return true;
+  } else if (data === TASK_CALLBACKS.CHALLENGE_DURATION_CUSTOM) {
+    session.step = 'challenge_custom_duration';
+    sessions.set(chatId, session);
+    await bot.sendMessage(chatId, 'Enter the number of days for this challenge (1-365):');
+    return true;
   }
 
   // Routine frequency callbacks
@@ -411,16 +498,21 @@ function getFilterKeyboard() {
       ],
       [
         { text: '🔄 Routines Only', callback_data: TASK_CALLBACKS.FILTER_ROUTINES },
+        { text: '🏆 Challenges', callback_data: TASK_CALLBACKS.FILTER_CHALLENGES },
       ],
     ],
   };
 }
 
-async function sendTaskPreview({ chatId, bot, supabase, filter = 'all' }) {
+async function sendTaskPreview({ chatId, bot, supabase, filter = 'all', userId }) {
   let query = supabase
     .from('financial_tasks')
-    .select('title,task_type,due_date,due_time,completed')
+    .select('id,title,task_type,due_date,due_time,challenge_duration_days,challenge_end_date,completed')
     .eq('completed', false);
+
+  if (userId) {
+    query = query.eq('user_id', userId);
+  }
 
   const today = getTodayDateString();
   const tomorrow = getDateString(1);
@@ -434,20 +526,40 @@ async function sendTaskPreview({ chatId, bot, supabase, filter = 'all' }) {
     query = query.gte('due_date', today).lte('due_date', endOfWeek);
   } else if (filter === 'routines') {
     query = query.eq('task_type', 'routine');
+  } else if (filter === 'challenges') {
+    query = query.eq('task_type', 'challenge');
   }
 
-  const { data } = await query.order('due_date', { ascending: true }).limit(5);
+  const { data } = await query.order('due_date', { ascending: true }).limit(10);
 
   const pending = data || [];
   const filterLabel = {
-    all: 'Current pending tasks/routines',
-    today: 'Tasks due today',
-    tomorrow: 'Tasks due tomorrow',
-    week: 'Tasks due this week',
-    routines: 'Routines only',
-  }[filter] || 'Current pending tasks/routines';
+    all: '📋 All pending items',
+    today: '📅 Due today',
+    tomorrow: '🔜 Due tomorrow',
+    week: '📆 Due this week',
+    routines: '🔄 Routines',
+    challenges: '🏆 Challenges',
+  }[filter] || 'Current pending items';
 
-  await bot.sendMessage(chatId, `${filterLabel}:\n${formatTaskPreview(pending)}`, {
+  const formattedItems = pending
+    .map((item, idx) => {
+      const time = item.due_time ? ` at ${item.due_time}` : '';
+      let emoji = '✅';
+      if (item.task_type === 'routine') emoji = '🔄';
+      if (item.task_type === 'challenge') emoji = '🏆';
+      
+      let itemStr = `${idx + 1}. ${emoji} ${item.title}`;
+      if (item.task_type === 'challenge') {
+        itemStr += ` (${item.challenge_duration_days}d, ends ${item.challenge_end_date})`;
+      } else {
+        itemStr += ` (due ${item.due_date || 'n/a'}${time})`;
+      }
+      return itemStr;
+    })
+    .join('\n');
+
+  await bot.sendMessage(chatId, `${filterLabel}:\n\n${pending.length > 0 ? formattedItems : 'No items'}`, {
     reply_markup: getFilterKeyboard(),
   });
 }
@@ -470,11 +582,14 @@ async function insertTaskEntry({ session, supabase }) {
         : [],
     routine_month_day:
       payload.task_type === 'routine' && payload.routine_frequency === 'monthly' ? payload.routine_month_day : null,
+    challenge_duration_days: payload.task_type === 'challenge' ? payload.challenge_duration_days : null,
+    challenge_end_date: payload.task_type === 'challenge' ? payload.challenge_end_date : null,
+    user_id: payload.user_id || null,
     completed: false,
   });
 }
 
-async function handleTaskMessage({ chatId, text, sessions, bot, supabase, sendMainMenu }) {
+async function handleTaskMessage({ chatId, text, sessions, bot, supabase, sendMainMenu, userId }) {
   const session = sessions.get(chatId);
 
   if (!session || session.module !== 'task') {
@@ -485,7 +600,8 @@ async function handleTaskMessage({ chatId, text, sessions, bot, supabase, sendMa
     const title = text.trim();
 
     if (!title) {
-      await bot.sendMessage(chatId, 'Title cannot be empty. Enter title:');
+      const label = session.payload.task_type === 'routine' ? 'Routine' : session.payload.task_type === 'challenge' ? 'Challenge' : 'Task';
+      await bot.sendMessage(chatId, `${label} name cannot be empty. Enter ${label.toLowerCase()} name:`);
       return true;
     }
 
@@ -494,15 +610,24 @@ async function handleTaskMessage({ chatId, text, sessions, bot, supabase, sendMa
     if (session.payload.task_type === 'routine') {
       session.step = 'routine_frequency';
       sessions.set(chatId, session);
-      await bot.sendMessage(chatId, 'Select routine frequency:', {
+      await bot.sendMessage(chatId, '🔄 Select routine frequency:', {
         reply_markup: getFrequencyPickerKeyboard(),
+      });
+      return true;
+    }
+
+    if (session.payload.task_type === 'challenge') {
+      session.step = 'challenge_duration';
+      sessions.set(chatId, session);
+      await bot.sendMessage(chatId, '🏆 How many days for this challenge?', {
+        reply_markup: getChallengeDurationKeyboard(),
       });
       return true;
     }
 
     session.step = 'due_date_picker';
     sessions.set(chatId, session);
-    await bot.sendMessage(chatId, 'When is this task due?', {
+    await bot.sendMessage(chatId, '📅 When is this task due?', {
       reply_markup: getDatePickerKeyboard(),
     });
     return true;
@@ -550,6 +675,25 @@ async function handleTaskMessage({ chatId, text, sessions, bot, supabase, sendMa
     return false;
   }
 
+  if (session.step === 'challenge_custom_duration') {
+    const days = parseInt(text.trim(), 10);
+    if (isNaN(days) || days <= 0 || days > 365) {
+      await bot.sendMessage(chatId, 'Please enter a valid number between 1 and 365:');
+      return true;
+    }
+    session.payload.challenge_duration_days = days;
+    const endDate = new Date();
+    endDate.setDate(endDate.getDate() + days);
+    const offset = endDate.getTimezoneOffset() * 60000;
+    session.payload.challenge_end_date = new Date(endDate.getTime() - offset).toISOString().split('T')[0];
+    session.step = 'due_date_picker';
+    sessions.set(chatId, session);
+    await bot.sendMessage(chatId, `✅ Challenge duration: ${days} days\n\nWhen should this challenge start?`, {
+      reply_markup: getDatePickerKeyboard(),
+    });
+    return true;
+  }
+
   if (session.step === 'description') {
     const description = text.trim();
     session.payload.description = description.toLowerCase() === 'skip' ? null : description;
@@ -557,15 +701,34 @@ async function handleTaskMessage({ chatId, text, sessions, bot, supabase, sendMa
     const { error } = await insertTaskEntry({ session, supabase });
 
     if (error) {
-      await bot.sendMessage(chatId, `Could not save task: ${error.message}`);
+      await bot.sendMessage(chatId, `Could not save ${session.payload.task_type}: ${error.message}`);
       sessions.delete(chatId);
       await sendMainMenu(chatId, 'Operation failed. Choose an option:');
       return true;
     }
 
-    const label = session.payload.task_type === 'routine' ? 'Routine' : 'Task';
+    const typeLabel = session.payload.task_type === 'routine' ? 'Routine' : session.payload.task_type === 'challenge' ? 'Challenge' : 'Task';
+    const emoji = session.payload.task_type === 'routine' ? '🔄' : session.payload.task_type === 'challenge' ? '🏆' : '✅';
+    
+    let summaryMsg = `${emoji} ${typeLabel} Summary:\n\n`;
+    summaryMsg += `📌 Name: ${session.payload.title}\n`;
+    
+    if (session.payload.task_type === 'routine') {
+      summaryMsg += `🔁 Frequency: ${session.payload.routine_frequency}\n`;
+      summaryMsg += `📅 Days: ${session.payload.routine_days.join(', ')}\n`;
+    } else if (session.payload.task_type === 'challenge') {
+      summaryMsg += `⏱️ Duration: ${session.payload.challenge_duration_days} days\n`;
+      const endDate = new Date(`${session.payload.challenge_end_date}T00:00:00`);
+      const formattedEndDate = new Intl.DateTimeFormat('en-GB', { day: '2-digit', month: 'short', year: 'numeric' }).format(endDate);
+      summaryMsg += `📅 End Date: ${formattedEndDate}\n`;
+    }
+    
+    summaryMsg += `🗓️ Start Date: ${session.payload.due_date ? new Intl.DateTimeFormat('en-GB', { day: '2-digit', month: 'short', year: 'numeric' }).format(new Date(`${session.payload.due_date}T00:00:00`)) : 'Not set'}\n`;
+    if (session.payload.due_time) summaryMsg += `⏰ Time: ${session.payload.due_time}\n`;
+    if (session.payload.description) summaryMsg += `📝 Notes: ${session.payload.description}\n`;
+    
     sessions.delete(chatId);
-    await bot.sendMessage(chatId, `${label} created successfully.`);
+    await bot.sendMessage(chatId, summaryMsg + `\n✅ ${typeLabel} created successfully!`);
     await sendMainMenu(chatId, 'Choose your next action:');
     return true;
   }

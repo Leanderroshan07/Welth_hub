@@ -505,6 +505,7 @@ function attachHandlers() {
       data,
       sessions,
       bot,
+      userId,
     });
 
     if (handledByTask) {
@@ -527,12 +528,18 @@ function attachHandlers() {
     }
 
     if (data === TASK_CALLBACKS.ADD_TASK) {
-      await beginTaskAction({ chatId, action: 'add_task', sessions, bot, supabase });
+      await beginTaskAction({ chatId, action: 'add_task', sessions, bot, userId });
       return;
     }
 
     if (data === TASK_CALLBACKS.ADD_ROUTINE) {
-      await beginTaskAction({ chatId, action: 'add_routine', sessions, bot, supabase });
+      await beginTaskAction({ chatId, action: 'add_routine', sessions, bot, userId });
+      return;
+    }
+
+    if (data === TASK_CALLBACKS.ADD_CHALLENGE) {
+      await beginTaskAction({ chatId, action: 'add_challenge', sessions, bot, userId });
+      return;
     }
   });
 
@@ -594,6 +601,7 @@ function attachHandlers() {
       bot,
       supabase,
       sendMainMenu,
+      userId,
     });
     if (handledByTask) return;
 
@@ -709,7 +717,7 @@ async function processWebhookUpdate(update) {
         return;
       }
 
-      const taskHandled = await handleTaskMessage({ chatId, text: msg.text, sessions, bot, supabase, sendMainMenu });
+      const taskHandled = await handleTaskMessage({ chatId, text: msg.text, sessions, bot, supabase, sendMainMenu, userId: msg.from?.id });
       if (taskHandled) {
         return;
       }
@@ -790,7 +798,7 @@ async function processWebhookUpdate(update) {
         return;
       }
 
-      const taskHandled = await handleTaskCallbackQuery({ chatId, data, sessions, bot });
+      const taskHandled = await handleTaskCallbackQuery({ chatId, data, sessions, bot, userId });
       if (taskHandled) {
         clearClickedCallbackMessage(query).catch(() => {});
         return;
@@ -821,15 +829,21 @@ async function processWebhookUpdate(update) {
         return;
       }
 
-      // Task actions (Add Task, Add Routine)
+      // Task actions (Add Task, Add Routine, Add Challenge)
       if (data === TASK_CALLBACKS.ADD_TASK) {
-        await beginTaskAction({ chatId, action: 'add_task', sessions, bot, supabase });
+        await beginTaskAction({ chatId, action: 'add_task', sessions, bot, userId });
         clearClickedCallbackMessage(query).catch(() => {});
         return;
       }
 
       if (data === TASK_CALLBACKS.ADD_ROUTINE) {
-        await beginTaskAction({ chatId, action: 'add_routine', sessions, bot, supabase });
+        await beginTaskAction({ chatId, action: 'add_routine', sessions, bot, userId });
+        clearClickedCallbackMessage(query).catch(() => {});
+        return;
+      }
+
+      if (data === TASK_CALLBACKS.ADD_CHALLENGE) {
+        await beginTaskAction({ chatId, action: 'add_challenge', sessions, bot, userId });
         clearClickedCallbackMessage(query).catch(() => {});
         return;
       }

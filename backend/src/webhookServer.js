@@ -13,6 +13,7 @@ async function start() {
   const app = express();
   app.use(express.json());
 
+  
   const bot = await initBot({ polling: false });
 
   if (!bot) {

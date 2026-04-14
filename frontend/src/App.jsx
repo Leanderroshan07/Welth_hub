@@ -3,6 +3,7 @@ import { supabase } from './supabaseClient';
 import CashFlow from './CashFlow';
 import FinancialTasks from './FinancialTasks';
 import GoalTracking from './GoalTracking';
+import ChallengesTracker from './ChallengesTracker';
 
 function money(value) {
   return new Intl.NumberFormat('en-IN', {
@@ -877,6 +878,14 @@ export default function App() {
             <span className="material-symbols-outlined">flag</span>
             <span>Goal Tracking</span>
           </button>
+          <button
+            type="button"
+            className={`menu-item ${activePage === 'challenges' ? 'active' : ''}`}
+            onClick={() => setActivePage('challenges')}
+          >
+            <span className="material-symbols-outlined">local_fire_department</span>
+            <span>Challenges</span>
+          </button>
           <button type="button" className="menu-item">
             <span className="material-symbols-outlined">trending_up</span>
             <span>Investments</span>
@@ -1089,6 +1098,8 @@ export default function App() {
               subAccounts={subAccounts}
               entries={entries}
             />
+          ) : activePage === 'challenges' ? (
+            <ChallengesTracker showToast={showToast} onChallengesChange={loadData} />
           ) : null}
         </div>
       </main>
