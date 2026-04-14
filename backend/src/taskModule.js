@@ -249,12 +249,9 @@ async function handleTaskCallbackQuery({ chatId, data, sessions, bot }) {
       session.payload.routine_days.push(dayName);
     }
     sessions.set(chatId, session);
-    await bot.editMessageReplyMarkup({ inline_keyboard: [] }, {
-      chat_id: chatId,
-      message_id: session.lastMessageId,
-    }).catch(() => {});
-    await bot.sendMessage(chatId, `Days selected: ${session.payload.routine_days.join(', ') || 'None'}`, {
-      reply_markup: getDayPickerKeyboard(session.payload.routine_days.map(day => `routine:day_${day}`)),
+    const selectedDayCallbacks = session.payload.routine_days.map(day => `routine:day_${day}`);
+    await bot.sendMessage(chatId, `Days selected: ${session.payload.routine_days.join(', ') || 'None'}\n\nSelect more or click Done:`, {
+      reply_markup: getDayPickerKeyboard(selectedDayCallbacks),
     });
     return true;
   }
