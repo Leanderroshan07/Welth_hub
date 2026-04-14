@@ -3,6 +3,21 @@ const TASK_CALLBACKS = {
   ADD_TASK: 'task:add_task',
   ADD_ROUTINE: 'task:add_routine',
   BACK: 'menu:main',
+  // Routine frequency
+  ROUTINE_FREQ_DAILY: 'routine:freq_daily',
+  ROUTINE_FREQ_WEEKLY: 'routine:freq_weekly',
+  ROUTINE_FREQ_MONTHLY: 'routine:freq_monthly',
+  // Routine day selector
+  ROUTINE_DAY_SUN: 'routine:day_sun',
+  ROUTINE_DAY_MON: 'routine:day_mon',
+  ROUTINE_DAY_TUE: 'routine:day_tue',
+  ROUTINE_DAY_WED: 'routine:day_wed',
+  ROUTINE_DAY_THU: 'routine:day_thu',
+  ROUTINE_DAY_FRI: 'routine:day_fri',
+  ROUTINE_DAY_SAT: 'routine:day_sat',
+  ROUTINE_DAYS_DONE: 'routine:days_done',
+  // Monthly day selector
+  ROUTINE_MONTH_START: 'routine:month_',
   // Date picker
   PICK_DUE_TODAY: 'task:due_today',
   PICK_DUE_TOMORROW: 'task:due_tomorrow',
@@ -91,6 +106,60 @@ function getTimePickerKeyboard() {
   };
 }
 
+function getDayPickerKeyboard(selectedDays = []) {
+  const days = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
+  const dayCallbacks = [
+    TASK_CALLBACKS.ROUTINE_DAY_SUN,
+    TASK_CALLBACKS.ROUTINE_DAY_MON,
+    TASK_CALLBACKS.ROUTINE_DAY_TUE,
+    TASK_CALLBACKS.ROUTINE_DAY_WED,
+    TASK_CALLBACKS.ROUTINE_DAY_THU,
+    TASK_CALLBACKS.ROUTINE_DAY_FRI,
+    TASK_CALLBACKS.ROUTINE_DAY_SAT,
+  ];
+
+  const dayButtons = days.map((day, idx) => ({
+    text: selectedDays.includes(dayCallbacks[idx]) ? `✓ ${day}` : day,
+    callback_data: dayCallbacks[idx],
+  }));
+
+  return {
+    inline_keyboard: [
+      [dayButtons[0], dayButtons[1], dayButtons[2]],
+      [dayButtons[3], dayButtons[4], dayButtons[5]],
+      [dayButtons[6]],
+      [{ text: '✅ Done', callback_data: TASK_CALLBACKS.ROUTINE_DAYS_DONE }],
+    ],
+  };
+}
+
+function getMonthCalendarKeyboard() {
+  const buttons = [];
+  for (let i = 1; i <= 31; i++) {
+    if ((i - 1) % 4 === 0) {
+      buttons.push([]);
+    }
+    buttons[Math.floor((i - 1) / 4)].push({
+      text: String(i),
+      callback_data: `${TASK_CALLBACKS.ROUTINE_MONTH_START}${i}`,
+    });
+  }
+  buttons.push([{ text: '⬅️ Back', callback_data: 'task:routine_freq_back' }]);
+  return { inline_keyboard: buttons };
+}
+
+function getFrequencyPickerKeyboard() {
+  return {
+    inline_keyboard: [
+      [
+        { text: '📅 Daily', callback_data: TASK_CALLBACKS.ROUTINE_FREQ_DAILY },
+        { text: '📆 Weekly', callback_data: TASK_CALLBACKS.ROUTINE_FREQ_WEEKLY },
+      ],
+      [{ text: '📋 Monthly', callback_data: TASK_CALLBACKS.ROUTINE_FREQ_MONTHLY }],
+    ],
+  };
+}
+
 function getTimeFromPeriod(period) {
   const times = {
     morning: '09:00',
@@ -137,6 +206,84 @@ async function handleTaskCallbackQuery({ chatId, data, sessions, bot }) {
 
   if (!session || session.module !== 'task') {
     return false;
+  }
+
+  // Routine frequency callbacks
+  if (data === TASK_CALLBACKS.ROUTINE_FREQ_DAILY) {
+    session.payload.routine_frequency = 'daily';
+    session.step = 'routine_days';
+    sessions.set(chatId, session);
+    await bot.sendMessage(chatId, 'Select routine days:', {
+      reply_markup: getDayPickerKeyboard(),
+    });
+    return true;
+  } else if (data === TASK_CALLBACKS.ROUTINE_FREQ_WEEKLY) {
+    session.payload.routine_frequency = 'weekly';
+    session.step = 'routine_days';
+    sessions.set(chatId, session);
+    await bot.sendMessage(chatId, 'Select routine days:', {
+      reply_markup: getDayPickerKeyboard(),
+    });
+    return true;
+  } else if (data === TASK_CALLBACKS.ROUTINE_FREQ_MONTHLY) {
+    session.payload.routine_frequency = 'monthly';
+    session.step = 'routine_month_day';
+    sessions.set(chatId, session);
+    await bot.sendMessage(chatId, 'Select day of month:', {
+      reply_markup: getMonthCalendarKeyboard(),
+    });
+    return true;
+  }
+
+  // Routine day picker callbacks
+  const dayPickData = data.match(/^routine:day_(sun|mon|tue|wed|thu|fri|sat)$/);
+  if (dayPickData) {
+    const dayName = dayPickData[1];
+    if (!session.payload.routine_days) {
+      session.payload.routine_days = [];
+    }
+    const dayIndex = session.payload.routine_days.indexOf(dayName);
+    if (dayIndex > -1) {
+      session.payload.routine_days.splice(dayIndex, 1);
+    } else {
+      session.payload.routine_days.push(dayName);
+    }
+    sessions.set(chatId, session);
+    await bot.editMessageReplyMarkup({ inline_keyboard: [] }, {
+      chat_id: chatId,
+      message_id: session.lastMessageId,
+    }).catch(() => {});
+    await bot.sendMessage(chatId, `Days selected: ${session.payload.routine_days.join(', ') || 'None'}`, {
+      reply_markup: getDayPickerKeyboard(session.payload.routine_days.map(day => `routine:day_${day}`)),
+    });
+    return true;
+  }
+
+  // Routine days done callback
+  if (data === TASK_CALLBACKS.ROUTINE_DAYS_DONE) {
+    if (!session.payload.routine_days || session.payload.routine_days.length === 0) {
+      await bot.sendMessage(chatId, 'Please select at least one day.');
+      return true;
+    }
+    session.step = 'due_date_picker';
+    sessions.set(chatId, session);
+    await bot.sendMessage(chatId, 'When is this routine due?', {
+      reply_markup: getDatePickerKeyboard(),
+    });
+    return true;
+  }
+
+  // Routine month day callbacks
+  const monthDayData = data.match(/^routine:month_(\d+)$/);
+  if (monthDayData) {
+    const dayNum = Number(monthDayData[1]);
+    session.payload.routine_month_day = dayNum;
+    session.step = 'due_date_picker';
+    sessions.set(chatId, session);
+    await bot.sendMessage(chatId, 'When is this routine due?', {
+      reply_markup: getDatePickerKeyboard(),
+    });
+    return true;
   }
 
   // Date picker callbacks
@@ -295,7 +442,9 @@ async function handleTaskMessage({ chatId, text, sessions, bot, supabase, sendMa
     if (session.payload.task_type === 'routine') {
       session.step = 'routine_frequency';
       sessions.set(chatId, session);
-      await bot.sendMessage(chatId, 'Enter routine frequency: daily, weekly, or monthly');
+      await bot.sendMessage(chatId, 'Select routine frequency:', {
+        reply_markup: getFrequencyPickerKeyboard(),
+      });
       return true;
     }
 
@@ -308,63 +457,17 @@ async function handleTaskMessage({ chatId, text, sessions, bot, supabase, sendMa
   }
 
   if (session.step === 'routine_frequency') {
-    const frequency = text.trim().toLowerCase();
-
-    if (!['daily', 'weekly', 'monthly'].includes(frequency)) {
-      await bot.sendMessage(chatId, 'Frequency must be daily, weekly, or monthly. Enter again:');
-      return true;
-    }
-
-    session.payload.routine_frequency = frequency;
-
-    if (frequency === 'monthly') {
-      session.step = 'routine_month_day';
-      sessions.set(chatId, session);
-      await bot.sendMessage(chatId, 'Enter month day number (1-31):');
-      return true;
-    }
-
-    session.step = 'routine_days';
-    sessions.set(chatId, session);
-    await bot.sendMessage(chatId, 'Enter routine days (comma-separated): sun,mon,tue,wed,thu,fri,sat');
+    await bot.sendMessage(chatId, 'Please use the buttons to select frequency.');
     return true;
   }
 
   if (session.step === 'routine_days') {
-    const allowed = new Set(['sun', 'mon', 'tue', 'wed', 'thu', 'fri', 'sat']);
-    const days = text
-      .split(',')
-      .map((day) => day.trim().toLowerCase())
-      .filter(Boolean);
-
-    if (days.length === 0 || days.some((day) => !allowed.has(day))) {
-      await bot.sendMessage(chatId, 'Invalid days. Use comma-separated values from sun,mon,tue,wed,thu,fri,sat');
-      return true;
-    }
-
-    session.payload.routine_days = Array.from(new Set(days));
-    session.step = 'due_date_picker';
-    sessions.set(chatId, session);
-    await bot.sendMessage(chatId, 'When is this routine due?', {
-      reply_markup: getDatePickerKeyboard(),
-    });
+    await bot.sendMessage(chatId, 'Please use the buttons to select days.');
     return true;
   }
 
   if (session.step === 'routine_month_day') {
-    const day = Number(text.trim());
-
-    if (!Number.isInteger(day) || day < 1 || day > 31) {
-      await bot.sendMessage(chatId, 'Month day must be a number from 1 to 31. Enter again:');
-      return true;
-    }
-
-    session.payload.routine_month_day = day;
-    session.step = 'due_date_picker';
-    sessions.set(chatId, session);
-    await bot.sendMessage(chatId, 'When is this routine due?', {
-      reply_markup: getDatePickerKeyboard(),
-    });
+    await bot.sendMessage(chatId, 'Please use the buttons to select the day.');
     return true;
   }
 
