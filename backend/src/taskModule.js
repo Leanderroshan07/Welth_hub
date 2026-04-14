@@ -393,6 +393,7 @@ async function handleTaskMessage({ chatId, text, sessions, bot, supabase, sendMa
   if (session.step === 'due_time_picker') {
     // This step is handled by callbacks, should not reach here
     return false;
+  }
 
   if (session.step === 'description') {
     const description = text.trim();
