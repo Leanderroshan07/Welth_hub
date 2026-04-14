@@ -3,7 +3,7 @@ require('dotenv').config({ path: process.env.DOTENV_CONFIG_PATH || '.env' });
 const TelegramBot = require('node-telegram-bot-api');
 const { supabase } = require('./supabaseClient');
 const { MONEY_CALLBACKS, getMoneyMenuKeyboard, beginMoneyAction, handleMoneyCallbackQuery, handleMoneyMessage } = require('./moneyModule');
-const { TASK_CALLBACKS, getTaskMenuKeyboard, beginTaskAction, handleTaskMessage, sendTaskPreview } = require('./taskModule');
+const { TASK_CALLBACKS, getTaskMenuKeyboard, beginTaskAction, handleTaskMessage, handleTaskCallbackQuery, sendTaskPreview } = require('./taskModule');
 const { GOAL_CALLBACKS, getGoalMenuKeyboard, handleGoalCallbackQuery, handleGoalMessage } = require('./goalBotModule');
 
 const token = process.env.TELEGRAM_BOT_TOKEN;
@@ -500,6 +500,17 @@ function attachHandlers() {
       return;
     }
 
+    const handledByTask = await handleTaskCallbackQuery({
+      chatId,
+      data,
+      sessions,
+      bot,
+    });
+
+    if (handledByTask) {
+      return;
+    }
+
     if (data === MONEY_CALLBACKS.INCOME) {
       await beginMoneyAction({ chatId, action: 'income', sessions, bot, supabase });
       return;
@@ -775,6 +786,12 @@ async function processWebhookUpdate(update) {
       // Delegate to module handlers
       const moneyHandled = await handleMoneyCallbackQuery({ chatId, data, sessions, bot });
       if (moneyHandled) {
+        clearClickedCallbackMessage(query).catch(() => {});
+        return;
+      }
+
+      const taskHandled = await handleTaskCallbackQuery({ chatId, data, sessions, bot });
+      if (taskHandled) {
         clearClickedCallbackMessage(query).catch(() => {});
         return;
       }
