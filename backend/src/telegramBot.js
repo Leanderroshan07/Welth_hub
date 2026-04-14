@@ -787,32 +787,32 @@ async function processWebhookUpdate(update) {
 
       // Money actions (Income, Expense, Transfer)
       if (data === MONEY_CALLBACKS.INCOME) {
-        await beginMoneyAction({ chatId, action: 'income', sessions, bot });
+        await beginMoneyAction({ chatId, action: 'income', sessions, bot, supabase });
         clearClickedCallbackMessage(query).catch(() => {});
         return;
       }
 
       if (data === MONEY_CALLBACKS.EXPENSE) {
-        await beginMoneyAction({ chatId, action: 'expense', sessions, bot });
+        await beginMoneyAction({ chatId, action: 'expense', sessions, bot, supabase });
         clearClickedCallbackMessage(query).catch(() => {});
         return;
       }
 
       if (data === MONEY_CALLBACKS.TRANSFER) {
-        await beginMoneyAction({ chatId, action: 'transfer', sessions, bot });
+        await beginMoneyAction({ chatId, action: 'transfer', sessions, bot, supabase });
         clearClickedCallbackMessage(query).catch(() => {});
         return;
       }
 
       // Task actions (Add Task, Add Routine)
       if (data === TASK_CALLBACKS.ADD_TASK) {
-        await beginTaskAction({ chatId, action: 'add_task', sessions, bot });
+        await beginTaskAction({ chatId, action: 'add_task', sessions, bot, supabase });
         clearClickedCallbackMessage(query).catch(() => {});
         return;
       }
 
       if (data === TASK_CALLBACKS.ADD_ROUTINE) {
-        await beginTaskAction({ chatId, action: 'add_routine', sessions, bot });
+        await beginTaskAction({ chatId, action: 'add_routine', sessions, bot, supabase });
         clearClickedCallbackMessage(query).catch(() => {});
         return;
       }
