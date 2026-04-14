@@ -603,10 +603,202 @@ function attachHandlers() {
   console.log('Vaazhi Telegram bot is running.');
 }
 
+// Webhook mode: manually process each handler (bot.on() listeners don't work with processUpdate)
+async function processWebhookUpdate(update) {
+  if (!bot) {
+    console.error('Bot not initialized for webhook processing');
+    return;
+  }
+
+  try {
+    // Process message
+    if (update.message) {
+      const msg = update.message;
+      const chatId = msg.chat?.id;
+
+      if (isDeactivatedUser(msg)) {
+        await denyDeactivated(chatId);
+        return;
+      }
+
+      // Command: /start
+      if (msg.text === '/start') {
+        if (!isAuthorizedUser(msg)) {
+          await promptForAccess(chatId);
+          return;
+        }
+        registerKnownUser(msg);
+        sessions.delete(chatId);
+        await sendMainMenu(chatId, 'Welcome to Vaazhi Bot. Choose a module:');
+        return;
+      }
+
+      // Command: /cancel
+      if (msg.text === '/cancel') {
+        if (!isAuthorizedUser(msg)) {
+          await promptForAccess(chatId);
+          return;
+        }
+        registerKnownUser(msg);
+        const hadSession = sessions.has(chatId);
+        sessions.delete(chatId);
+        if (hadSession) {
+          await bot.sendMessage(chatId, 'Cancelled current action.');
+        }
+        await sendMainMenu(chatId, 'Choose a module:');
+        return;
+      }
+
+      // Command: /id
+      if (msg.text === '/id') {
+        const userId = msg.from?.id;
+        const username = msg.from?.username ? `@${msg.from.username}` : 'no username';
+        registerKnownUser(msg);
+        await bot.sendMessage(chatId, `Your Telegram user ID is: ${userId}\nUsername: ${username}`);
+        return;
+      }
+
+      // Command: /amiadmin
+      if (msg.text === '/amiadmin') {
+        const isAdmin = isAdminUser(msg);
+        registerKnownUser(msg);
+        if (isAdmin) {
+          await bot.sendMessage(chatId, 'Yes, you are an admin.');
+        } else {
+          await bot.sendMessage(chatId, 'No, you are not an admin.');
+        }
+        return;
+      }
+
+      // Command: /users
+      if (msg.text === '/users') {
+        if (!isAdminUser(msg)) {
+          await bot.sendMessage(chatId, 'Only admins can view logged-in users.');
+          return;
+        }
+        registerKnownUser(msg);
+        await bot.sendMessage(chatId, buildKnownUsersText());
+        return;
+      }
+
+      // General message handling
+      if (!isAuthorizedUser(msg)) {
+        await handleAccessAttempt({ chatId, userId: msg.from?.id, text: msg.text });
+        return;
+      }
+
+      registerKnownUser(msg);
+
+      // Route to module handlers
+      const moneyHandled = await handleMoneyMessage({ chatId, session: sessions.get(chatId), text: msg.text, msg, bot });
+      if (moneyHandled) {
+        return;
+      }
+
+      const taskHandled = await handleTaskMessage({ chatId, session: sessions.get(chatId), text: msg.text, msg, bot });
+      if (taskHandled) {
+        return;
+      }
+
+      const goalHandled = await handleGoalMessage({ chatId, session: sessions.get(chatId), text: msg.text, msg, bot });
+      if (goalHandled) {
+        return;
+      }
+
+      // Default: show main menu
+      await sendMainMenu(chatId, `Message received: "${msg.text}"\n\nChoose a module:`);
+    }
+
+    // Process callback query (button clicks)
+    if (update.callback_query) {
+      const query = update.callback_query;
+      const chatId = query.message?.chat?.id;
+      const data = query.data;
+
+      if (!isAuthorizedUser(query)) {
+        await bot.answerCallbackQuery(query.id, {
+          text: 'You are not authorized',
+          show_alert: true,
+        });
+        return;
+      }
+
+      registerKnownUser(query);
+
+      // Main menu
+      if (data === MAIN_CALLBACKS.MAIN_MENU) {
+        sessions.delete(chatId);
+        await clearClickedCallbackMessage(query);
+        await sendMainMenu(chatId, 'Choose a module:');
+        return;
+      }
+
+      // Money menu
+      if (data === MONEY_CALLBACKS.MENU) {
+        sessions.delete(chatId);
+        const [accountsRes, subAccountsRes] = await Promise.all([
+          supabase.from('accounts').select('name').order('created_at', { ascending: true }),
+          supabase.from('sub_accounts').select('name').order('created_at', { ascending: true }),
+        ]);
+
+        const accounts = (accountsRes.data || []).map((item, index) => `${index + 1}. ${item.name}`).join('\n') || 'None';
+        const subAccounts = (subAccountsRes.data || []).map((item, index) => `${index + 1}. ${item.name}`).join('\n') || 'None';
+
+        await bot.sendMessage(chatId, 'Money Manage: choose an action', {
+          reply_markup: getMoneyMenuKeyboard(),
+        });
+        await bot.sendMessage(chatId, `Available Accounts:\n${accounts}\n\nAvailable Sub-Accounts:\n${subAccounts}`);
+        return;
+      }
+
+      // Task menu
+      if (data === TASK_CALLBACKS.MENU) {
+        sessions.delete(chatId);
+        await bot.sendMessage(chatId, 'Task Manage: choose an action', {
+          reply_markup: getTaskMenuKeyboard(),
+        });
+        await sendTaskPreview({ chatId, bot, supabase });
+        return;
+      }
+
+      // Back buttons
+      if (data === MONEY_CALLBACKS.BACK || data === TASK_CALLBACKS.BACK) {
+        sessions.delete(chatId);
+        await clearClickedCallbackMessage(query);
+        await sendMainMenu(chatId, 'Choose a module:');
+        return;
+      }
+
+      // Delegate to module handlers
+      const moneyHandled = await handleMoneyCallbackQuery({ chatId, data, sessions, bot });
+      if (moneyHandled) {
+        await clearClickedCallbackMessage(query);
+        return;
+      }
+
+      const goalHandled = await handleGoalCallbackQuery({ chatId, data, sessions, bot, supabase });
+      if (goalHandled) {
+        await clearClickedCallbackMessage(query);
+        return;
+      }
+
+      // Acknowledge unknown callback
+      await bot.answerCallbackQuery(query.id);
+    }
+  } catch (err) {
+    console.error('Error processing webhook update:', err?.message || err);
+  }
+}
+
 async function initBot(options = {}) {
   const { polling = false } = options;
   bot = new TelegramBot(token, polling ? { polling: true } : undefined);
-  attachHandlers();
+  
+  if (polling) {
+    // Polling mode: use event listeners
+    attachHandlers();
+  }
+  
   return bot;
 }
 
@@ -619,4 +811,4 @@ if (require.main === module) {
   initBot({ polling: true });
 }
 
-module.exports = { initBot, getBot };
+module.exports = { initBot, getBot, processWebhookUpdate };

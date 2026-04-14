@@ -1,7 +1,7 @@
 require('dotenv').config({ path: process.env.DOTENV_CONFIG_PATH || '.env' });
 
 const express = require('express');
-const { initBot } = require('./telegramBot');
+const { initBot, processWebhookUpdate } = require('./telegramBot');
 
 const PORT = process.env.PORT || 3000;
 const WEBHOOK_BASE = (process.env.WEBHOOK_URL || '').replace(/\/$/, '');
@@ -22,8 +22,13 @@ async function start() {
 
   if (FULL_WEBHOOK_URL) {
     try {
-      await bot.setWebHook(FULL_WEBHOOK_URL);
-      console.log('Set Telegram webhook to', FULL_WEBHOOK_URL);
+      if (SECRET_TOKEN) {
+        await bot.setWebHook(FULL_WEBHOOK_URL, { secret_token: SECRET_TOKEN });
+        console.log('Set Telegram webhook to', FULL_WEBHOOK_URL, 'with secret token');
+      } else {
+        await bot.setWebHook(FULL_WEBHOOK_URL);
+        console.log('Set Telegram webhook to', FULL_WEBHOOK_URL);
+      }
     } catch (err) {
       console.error('Failed to set webhook:', err?.message || err);
     }
@@ -31,7 +36,7 @@ async function start() {
     console.warn('WEBHOOK_URL not set — Telegram will not send updates automatically.');
   }
 
-  app.post(WEBHOOK_PATH, (req, res) => {
+  app.post(WEBHOOK_PATH, async (req, res) => {
     if (SECRET_TOKEN) {
       const header = req.get('x-telegram-bot-api-secret-token') || '';
       if (!header || header !== SECRET_TOKEN) {
@@ -41,9 +46,10 @@ async function start() {
     }
 
     try {
-      bot.processUpdate(req.body);
+      // Use new webhook-aware handler
+      await processWebhookUpdate(req.body);
     } catch (err) {
-      console.error('Error processing update:', err?.message || err);
+      console.error('Error processing webhook update:', err?.message || err);
     }
 
     res.sendStatus(200);
