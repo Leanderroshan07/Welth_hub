@@ -29,6 +29,17 @@ export default function CashFlow({ accounts, entries, onDataRefresh, showToast }
   const [subCategoryCategoryId, setSubCategoryCategoryId] = useState('');
   const [editingSubCategoryId, setEditingSubCategoryId] = useState('');
   const [showSubCategoryForm, setShowSubCategoryForm] = useState(false);
+  const [exportPeriod, setExportPeriod] = useState('day');
+  const [exportDay, setExportDay] = useState(() => {
+    const now = new Date();
+    const offset = now.getTimezoneOffset() * 60000;
+    return new Date(now.getTime() - offset).toISOString().split('T')[0];
+  });
+  const [exportMonth, setExportMonth] = useState(() => {
+    const now = new Date();
+    return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
+  });
+  const [exportYear, setExportYear] = useState(() => String(new Date().getFullYear()));
 
   useEffect(() => {
     loadSubAccounts();
@@ -179,6 +190,62 @@ export default function CashFlow({ accounts, entries, onDataRefresh, showToast }
       tone: 'secondary',
     },
   ];
+
+  const exportableEntries = useMemo(() => {
+    if (exportPeriod === 'day') {
+      return entries.filter((entry) => String(entry.occurred_at || '').startsWith(exportDay));
+    }
+
+    if (exportPeriod === 'month') {
+      return entries.filter((entry) => String(entry.occurred_at || '').startsWith(`${exportMonth}-`));
+    }
+
+    return entries.filter((entry) => String(entry.occurred_at || '').startsWith(`${exportYear}-`));
+  }, [entries, exportPeriod, exportDay, exportMonth, exportYear]);
+
+  function toCsvCell(value) {
+    const text = String(value ?? '');
+    if (text.includes(',') || text.includes('"') || text.includes('\n')) {
+      return `"${text.replace(/"/g, '""')}"`;
+    }
+    return text;
+  }
+
+  function handleMoneyExport() {
+    if (exportableEntries.length === 0) {
+      showToast('No transactions for selected period.', 'error');
+      return;
+    }
+
+    const rows = [
+      ['Entry Type', 'Amount', 'Account', 'From Account', 'To Account', 'Category', 'Sub-Category Id', 'Sub-Account Id', 'Note', 'Occurred At'],
+      ...exportableEntries.map((entry) => [
+        entry.entry_type || '',
+        entry.amount || '',
+        entry.account_name || '',
+        entry.from_account || '',
+        entry.to_account || '',
+        entry.category || '',
+        entry.sub_category_id || '',
+        entry.sub_account_id || '',
+        entry.note || '',
+        entry.occurred_at || '',
+      ]),
+    ];
+
+    const stamp = exportPeriod === 'day' ? exportDay : exportPeriod === 'month' ? exportMonth : exportYear;
+    const csv = rows.map((row) => row.map((cell) => toCsvCell(cell)).join(',')).join('\n');
+    const blob = new Blob([`\uFEFF${csv}`], { type: 'text/csv;charset=utf-8;' });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = url;
+    link.setAttribute('download', `money_manager_${exportPeriod}_${stamp}.csv`);
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    URL.revokeObjectURL(url);
+    showToast('Money manager export downloaded.', 'success');
+  }
 
   async function saveAccount() {
     const cleanName = accountNameInput.trim();
@@ -436,10 +503,10 @@ export default function CashFlow({ accounts, entries, onDataRefresh, showToast }
       <section className="cashflow-hero glass-panel">
         <div className="cashflow-hero-copy">
           <p className="cashflow-eyebrow">Cash Flow Admin</p>
-          <h2>Control accounts, shared buckets, and categories from one glass dashboard.</h2>
-          <p>
-            A premium overview for your cash flow structure with softer panels, fused shadows, and blurred depth.
-          </p>
+          <h2>Manage accounts, sub-accounts and categories.</h2>
+          <p>Quick tools on the left for exporting and quick stats.</p>
+
+          {/* per-page export removed - use central export controls */}
         </div>
 
         <div className="cashflow-hero-aside">
@@ -448,6 +515,8 @@ export default function CashFlow({ accounts, entries, onDataRefresh, showToast }
             <strong>{money(cashFlowNetBalance)}</strong>
             <small>{accountDisplayBalances.length} accounts · {subAccountBalances.length} sub-accounts</small>
           </div>
+
+          {/* export moved to left column */}
         </div>
       </section>
 

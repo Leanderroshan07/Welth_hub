@@ -45,6 +45,40 @@ function formatMonthYear(date) {
   return new Intl.DateTimeFormat('en-GB', { month: 'long', year: 'numeric' }).format(date);
 }
 
+function getWeekStartDate(dateValue) {
+  const date = new Date(`${dateValue}T00:00:00`);
+  const day = date.getDay();
+  const diff = day === 0 ? -6 : 1 - day;
+  date.setDate(date.getDate() + diff);
+  return date;
+}
+
+function formatDateForInput(date) {
+  const offset = date.getTimezoneOffset() * 60000;
+  return new Date(date.getTime() - offset).toISOString().split('T')[0];
+}
+
+function toCsvCell(value) {
+  const text = String(value ?? '');
+  if (text.includes(',') || text.includes('"') || text.includes('\n')) {
+    return `"${text.replace(/"/g, '""')}"`;
+  }
+  return text;
+}
+
+function downloadCsv(filename, rows) {
+  const csv = rows.map((row) => row.map((cell) => toCsvCell(cell)).join(',')).join('\n');
+  const blob = new Blob([`\uFEFF${csv}`], { type: 'text/csv;charset=utf-8;' });
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement('a');
+  link.href = url;
+  link.setAttribute('download', filename);
+  document.body.appendChild(link);
+  link.click();
+  document.body.removeChild(link);
+  URL.revokeObjectURL(url);
+}
+
 function buildMonthCalendar(date) {
   const year = date.getFullYear();
   const month = date.getMonth();
@@ -182,6 +216,11 @@ export default function FinancialTasks({ showToast, onTasksChange }) {
   const [saving, setSaving] = useState(false);
   const [submitError, setSubmitError] = useState('');
   const [routineCalendarView, setRoutineCalendarView] = useState(new Date());
+  const [exportPeriod, setExportPeriod] = useState('day');
+  const [exportDay, setExportDay] = useState(getTodayDateString());
+  const [exportWeekStart, setExportWeekStart] = useState(formatDateForInput(getWeekStartDate(getTodayDateString())));
+  const [exportMonth, setExportMonth] = useState(getTodayDateString().slice(0, 7));
+  const [exportYear, setExportYear] = useState(String(new Date().getFullYear()));
 
   const [taskForm, setTaskForm] = useState({
     title: '',
@@ -369,6 +408,64 @@ export default function FinancialTasks({ showToast, onTasksChange }) {
 
   const completedTasks = useMemo(() => tasks.filter((task) => task.completed), [tasks]);
 
+  const exportableTasks = useMemo(() => {
+    if (exportPeriod === 'day') {
+      return tasks.filter((task) => task.due_date === exportDay);
+    }
+
+    if (exportPeriod === 'week') {
+      const start = new Date(`${exportWeekStart}T00:00:00`);
+      const end = new Date(start);
+      end.setDate(end.getDate() + 6);
+
+      return tasks.filter((task) => {
+        const dueDate = new Date(`${task.due_date}T00:00:00`);
+        return dueDate >= start && dueDate <= end;
+      });
+    }
+
+    if (exportPeriod === 'month') {
+      return tasks.filter((task) => task.due_date.startsWith(`${exportMonth}-`));
+    }
+
+    return tasks.filter((task) => task.due_date.startsWith(`${exportYear}-`));
+  }, [tasks, exportPeriod, exportDay, exportWeekStart, exportMonth, exportYear]);
+
+  function handleTaskExport() {
+    if (exportableTasks.length === 0) {
+      showToast?.('No tasks found for selected export period.', 'error');
+      return;
+    }
+
+    const rows = [
+      ['Title', 'Description', 'Task Type', 'Task Date', 'Task Time', 'Due Date', 'Due Time', 'Routine Frequency', 'Routine Days', 'Routine Month Day', 'Completed'],
+      ...exportableTasks.map((task) => [
+        task.title,
+        task.description || '',
+        task.task_type || 'task',
+        task.task_date || '',
+        task.task_time || '',
+        task.due_date || '',
+        task.due_time || '',
+        task.routine_frequency || '',
+        Array.isArray(task.routine_days) ? task.routine_days.join(' | ') : '',
+        task.routine_month_day || '',
+        task.completed ? 'Yes' : 'No',
+      ]),
+    ];
+
+    const stamp = exportPeriod === 'day'
+      ? exportDay
+      : exportPeriod === 'week'
+        ? `${exportWeekStart}_week`
+        : exportPeriod === 'month'
+          ? exportMonth
+          : exportYear;
+
+    downloadCsv(`financial_tasks_${exportPeriod}_${stamp}.csv`, rows);
+    showToast?.('Task export downloaded.', 'success');
+  }
+
   const dueDateGroups = useMemo(() => {
     const grouped = new Map();
 
@@ -427,15 +524,19 @@ export default function FinancialTasks({ showToast, onTasksChange }) {
             Use the task dashboard to spot overdue items first, then plan what is due today and what is coming next.
           </p>
         </div>
-        <button
-          type="button"
-          className="inline-flex items-center justify-center gap-2 rounded-full bg-cyan-400 px-5 py-3 text-sm font-bold text-slate-950 transition hover:bg-cyan-300"
-          onClick={openModal}
-          aria-label="Add task"
-        >
-          <span className="material-symbols-outlined text-[1.1rem]">add</span>
-          Add Task
-        </button>
+        <div className="flex w-full max-w-[560px] flex-col items-stretch gap-2 md:items-end">
+          <div className="flex w-full flex-wrap items-center justify-end gap-2">
+            <button
+              type="button"
+              className="inline-flex items-center justify-center gap-2 rounded-full bg-cyan-400 px-5 py-3 text-sm font-bold text-slate-950 transition hover:bg-cyan-300"
+              onClick={openModal}
+              aria-label="Add task"
+            >
+              <span className="material-symbols-outlined text-[1.1rem]">add</span>
+              Add Task
+            </button>
+          </div>
+        </div>
       </header>
 
       <section className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">

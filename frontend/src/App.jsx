@@ -2,6 +2,7 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import { supabase } from './supabaseClient';
 import CashFlow from './CashFlow';
 import FinancialTasks from './FinancialTasks';
+import GoalTracking from './GoalTracking';
 
 function money(value) {
   return new Intl.NumberFormat('en-IN', {
@@ -185,6 +186,75 @@ export default function App() {
     note: '',
     subAccountId: '',
   });
+
+  // Left-sidebar export controls (compact)
+  const [sideExportPeriod, setSideExportPeriod] = useState('day');
+  const [sideExportDay, setSideExportDay] = useState(() => {
+    const now = new Date();
+    const offset = now.getTimezoneOffset() * 60000;
+    return new Date(now.getTime() - offset).toISOString().split('T')[0];
+  });
+  const [sideExportMonth, setSideExportMonth] = useState(() => {
+    const now = new Date();
+    return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
+  });
+  const [sideExportYear, setSideExportYear] = useState(() => String(new Date().getFullYear()));
+
+  const sideExportableEntries = useMemo(() => {
+    if (sideExportPeriod === 'day') {
+      return entries.filter((entry) => String(entry.occurred_at || '').startsWith(sideExportDay));
+    }
+
+    if (sideExportPeriod === 'month') {
+      return entries.filter((entry) => String(entry.occurred_at || '').startsWith(`${sideExportMonth}-`));
+    }
+
+    return entries.filter((entry) => String(entry.occurred_at || '').startsWith(`${sideExportYear}-`));
+  }, [entries, sideExportPeriod, sideExportDay, sideExportMonth, sideExportYear]);
+
+  function sideToCsvCell(value) {
+    const text = String(value ?? '');
+    if (text.includes(',') || text.includes('"') || text.includes('\n')) {
+      return `"${text.replace(/"/g, '""')}"`;
+    }
+    return text;
+  }
+
+  function handleSideExport() {
+    if (sideExportableEntries.length === 0) {
+      setToast?.({ message: 'No transactions for selected period.', type: 'error' });
+      return;
+    }
+
+    const rows = [
+      ['Entry Type', 'Amount', 'Account', 'From Account', 'To Account', 'Category', 'Sub-Category Id', 'Sub-Account Id', 'Note', 'Occurred At'],
+      ...sideExportableEntries.map((entry) => [
+        entry.entry_type || '',
+        entry.amount || '',
+        entry.account_name || '',
+        entry.from_account || '',
+        entry.to_account || '',
+        entry.category || '',
+        entry.sub_category_id || '',
+        entry.sub_account_id || '',
+        entry.note || '',
+        entry.occurred_at || '',
+      ]),
+    ];
+
+    const stamp = sideExportPeriod === 'day' ? sideExportDay : sideExportPeriod === 'month' ? sideExportMonth : sideExportYear;
+    const csv = rows.map((row) => row.map((cell) => sideToCsvCell(cell)).join(',')).join('\n');
+    const blob = new Blob([`\uFEFF${csv}`], { type: 'text/csv;charset=utf-8;' });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = url;
+    link.setAttribute('download', `money_manager_leftsidebar_${sideExportPeriod}_${stamp}.csv`);
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    URL.revokeObjectURL(url);
+    setToast?.({ message: 'Export downloaded.', type: 'success' });
+  }
 
   const accountNames = useMemo(() => accounts.map((item) => item.name), [accounts]);
   const categoryNames = useMemo(() => categories.map((item) => item.name), [categories]);
@@ -799,6 +869,14 @@ export default function App() {
             <span className="material-symbols-outlined">checklist</span>
             <span>Financial Tasks</span>
           </button>
+          <button
+            type="button"
+            className={`menu-item ${activePage === 'goals' ? 'active' : ''}`}
+            onClick={() => setActivePage('goals')}
+          >
+            <span className="material-symbols-outlined">flag</span>
+            <span>Goal Tracking</span>
+          </button>
           <button type="button" className="menu-item">
             <span className="material-symbols-outlined">trending_up</span>
             <span>Investments</span>
@@ -817,6 +895,31 @@ export default function App() {
           <span className="material-symbols-outlined">add</span>
           New Transaction
         </button>
+        <div className="side-export-card">
+          <p className="side-export-title">Export</p>
+          <div className="side-export-controls">
+            <select value={sideExportPeriod} onChange={(e) => setSideExportPeriod(e.target.value)}>
+              <option value="day">Day</option>
+              <option value="month">Month</option>
+              <option value="year">Year</option>
+            </select>
+
+            {sideExportPeriod === 'day' ? (
+              <input type="date" value={sideExportDay} onChange={(e) => setSideExportDay(e.target.value)} />
+            ) : null}
+
+            {sideExportPeriod === 'month' ? (
+              <input type="month" value={sideExportMonth} onChange={(e) => setSideExportMonth(e.target.value)} />
+            ) : null}
+
+            {sideExportPeriod === 'year' ? (
+              <input type="number" min="2000" max="2100" value={sideExportYear} onChange={(e) => setSideExportYear(e.target.value)} />
+            ) : null}
+
+            <button type="button" className="side-export-btn" onClick={handleSideExport}>Download</button>
+            <small className="side-export-count">{sideExportableEntries.length} entries</small>
+          </div>
+        </div>
       </aside>
 
       <main className="content">
@@ -979,6 +1082,13 @@ export default function App() {
             <CashFlow accounts={accounts} entries={entries} onDataRefresh={loadData} showToast={showToast} />
           ) : activePage === 'tasks' ? (
             <FinancialTasks showToast={showToast} onTasksChange={loadData} />
+          ) : activePage === 'goals' ? (
+            <GoalTracking
+              showToast={showToast}
+              onGoalsChange={loadData}
+              subAccounts={subAccounts}
+              entries={entries}
+            />
           ) : null}
         </div>
       </main>
