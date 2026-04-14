@@ -11,7 +11,7 @@
   "dependencies": {
     "@supabase/supabase-js": "^2.56.0",
     "dotenv": "^16.4.5",
-    "node-telegram-bot-api": "^0.66.0"
+    "node-telegram-bot-api": "^0.67.0"
   },
   "devDependencies": {
     "supabase": "^2.87.2"
