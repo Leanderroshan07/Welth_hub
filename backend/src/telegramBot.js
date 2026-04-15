@@ -899,9 +899,39 @@ async function processWebhookUpdate(update) {
 
 async function initBot(options = {}) {
   console.log('🤖 Initializing bot in polling mode (optimized for small user base)...');
-  
-  // Always use polling for small user base - no webhook overhead
+
+  // Try to remove any existing webhook to avoid conflicts with polling
+  try {
+    if (token) {
+      const deleteUrl = `https://api.telegram.org/bot${token}/deleteWebhook?drop_pending_updates=true`;
+      const resp = await fetch(deleteUrl, { method: 'GET' });
+      const body = await resp.json().catch(() => null);
+      if (body && body.ok) {
+        console.log('✅ Removed existing Telegram webhook (if any)');
+      } else {
+        console.log('ℹ️ Telegram deleteWebhook response:', body);
+      }
+    }
+  } catch (err) {
+    console.warn('⚠️ Failed to delete existing webhook:', err?.message || err);
+  }
+
+  // Start polling mode
   bot = new TelegramBot(token, { polling: true });
+
+  // Handle polling errors with clearer logs
+  try {
+    bot.on('polling_error', (err) => {
+      try {
+        const payload = err?.response?.body || err;
+        console.error('error: [polling_error]', JSON.stringify(payload));
+      } catch (e) {
+        console.error('error: [polling_error]', err?.message || err);
+      }
+    });
+  } catch (e) {
+    // ignore if bot doesn't support event binding for some reason
+  }
 
   // Start session cleanup interval (every 15 minutes for small user base)
   if (!sessionCleanupInterval) {
