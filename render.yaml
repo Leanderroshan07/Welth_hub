@@ -5,7 +5,7 @@ services:
     runtime: node
     plan: free
     buildCommand: npm install
-    startCommand: npm start
+    startCommand: npm run start:webhook
     envVars:
       - key: SUPABASE_URL
         sync: false
