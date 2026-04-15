@@ -4,10 +4,10 @@
   "version": "1.0.0",
   "main": "src/supabaseClient.js",
   "scripts": {
-    "start": "node src/webhookServer.js",
-    "start:bot": "node src/telegramBot.js",
-    "start:client": "node src/supabaseClient.js",
-    "start:webhook": "node src/webhookServer.js"
+    "start": "node src/telegramBot.js",
+    "start:polling": "node src/telegramBot.js",
+    "start:webhook": "node src/webhookServer.js",
+    "start:client": "node src/supabaseClient.js"
   },
   "dependencies": {
     "@supabase/supabase-js": "^2.56.0",

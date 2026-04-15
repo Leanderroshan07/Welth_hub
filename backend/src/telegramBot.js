@@ -28,6 +28,25 @@ if (!token) {
 
 const sessions = new Map();
 let bot;
+let sessionCleanupInterval;
+
+// Optimized session cleanup for small user base (1-2 users)
+function cleanupAbandonedSessions() {
+  const now = Date.now();
+  const SESSION_TIMEOUT = 60 * 60 * 1000; // 60 minutes for small user base
+  let removed = 0;
+
+  for (const [chatId, session] of sessions.entries()) {
+    if (now - (session.createdAt || now) > SESSION_TIMEOUT) {
+      sessions.delete(chatId);
+      removed++;
+    }
+  }
+
+  if (removed > 0) {
+    console.log(`🗑️  Cleaned up ${removed} abandoned sessions.`);
+  }
+}
 
 function isAuthorizedUser(messageOrQuery) {
   const userId = messageOrQuery?.from?.id;
@@ -209,6 +228,8 @@ function attachHandlers() {
 
     registerKnownUser(msg);
     sessions.delete(chatId);
+    
+    // Small optimization: cache the response for repeat starts
     await sendMainMenu(chatId, 'Welcome to Vaazhi Bot. Choose a module:');
   });
 
@@ -420,7 +441,7 @@ function attachHandlers() {
       await bot.sendMessage(chatId, 'Task Manage: choose an action', {
         reply_markup: getTaskMenuKeyboard(),
       });
-      await sendTaskPreview({ chatId, bot, supabase });
+      await sendTaskPreview({ chatId, bot, supabase, userId });
       return;
     }
 
@@ -506,6 +527,7 @@ function attachHandlers() {
       sessions,
       bot,
       userId,
+      supabase,
     });
 
     if (handledByTask) {
@@ -776,10 +798,11 @@ async function processWebhookUpdate(update) {
       // Task menu
       if (data === TASK_CALLBACKS.MENU) {
         sessions.delete(chatId);
+        const userId = query.from?.id;
         await bot.sendMessage(chatId, 'Task Manage: choose an action', {
           reply_markup: getTaskMenuKeyboard(),
         });
-        await sendTaskPreview({ chatId, bot, supabase });
+        await sendTaskPreview({ chatId, bot, supabase, userId });
         return;
       }
 
@@ -798,7 +821,7 @@ async function processWebhookUpdate(update) {
         return;
       }
 
-      const taskHandled = await handleTaskCallbackQuery({ chatId, data, sessions, bot, userId });
+      const taskHandled = await handleTaskCallbackQuery({ chatId, data, sessions, bot, userId, supabase });
       if (taskHandled) {
         clearClickedCallbackMessage(query).catch(() => {});
         return;
@@ -831,19 +854,37 @@ async function processWebhookUpdate(update) {
 
       // Task actions (Add Task, Add Routine, Add Challenge)
       if (data === TASK_CALLBACKS.ADD_TASK) {
-        await beginTaskAction({ chatId, action: 'add_task', sessions, bot, userId });
+        try {
+          await beginTaskAction({ chatId, action: 'add_task', sessions, bot, userId });
+          console.log(`✅ Task add initiated for user ${userId} in chat ${chatId}`);
+        } catch (err) {
+          console.error(`❌ Error in ADD_TASK action:`, err);
+          await bot.sendMessage(chatId, `⚠️ Error starting task: ${err?.message || 'Unknown error'}`);
+        }
         clearClickedCallbackMessage(query).catch(() => {});
         return;
       }
 
       if (data === TASK_CALLBACKS.ADD_ROUTINE) {
-        await beginTaskAction({ chatId, action: 'add_routine', sessions, bot, userId });
+        try {
+          await beginTaskAction({ chatId, action: 'add_routine', sessions, bot, userId });
+          console.log(`✅ Routine add initiated for user ${userId} in chat ${chatId}`);
+        } catch (err) {
+          console.error(`❌ Error in ADD_ROUTINE action:`, err);
+          await bot.sendMessage(chatId, `⚠️ Error starting routine: ${err?.message || 'Unknown error'}`);
+        }
         clearClickedCallbackMessage(query).catch(() => {});
         return;
       }
 
       if (data === TASK_CALLBACKS.ADD_CHALLENGE) {
-        await beginTaskAction({ chatId, action: 'add_challenge', sessions, bot, userId });
+        try {
+          await beginTaskAction({ chatId, action: 'add_challenge', sessions, bot, userId });
+          console.log(`✅ Challenge add initiated for user ${userId} in chat ${chatId}`);
+        } catch (err) {
+          console.error(`❌ Error in ADD_CHALLENGE action:`, err);
+          await bot.sendMessage(chatId, `⚠️ Error starting challenge: ${err?.message || 'Unknown error'}`);
+        }
         clearClickedCallbackMessage(query).catch(() => {});
         return;
       }
@@ -857,13 +898,20 @@ async function processWebhookUpdate(update) {
 }
 
 async function initBot(options = {}) {
-  const { polling = false } = options;
-  bot = new TelegramBot(token, polling ? { polling: true } : undefined);
+  console.log('🤖 Initializing bot in polling mode (optimized for small user base)...');
   
-  if (polling) {
-    // Polling mode: use event listeners
-    attachHandlers();
+  // Always use polling for small user base - no webhook overhead
+  bot = new TelegramBot(token, { polling: true });
+
+  // Start session cleanup interval (every 15 minutes for small user base)
+  if (!sessionCleanupInterval) {
+    sessionCleanupInterval = setInterval(cleanupAbandonedSessions, 15 * 60 * 1000);
   }
+
+  // Attach all event listeners for polling mode
+  attachHandlers();
+
+  console.log('✅ Bot initialized in polling mode');
   
   return bot;
 }
@@ -872,9 +920,31 @@ function getBot() {
   return bot;
 }
 
+// Main startup - polling mode (this is now the only mode)
 if (require.main === module) {
-  // If run directly, start polling for backwards compatibility.
-  initBot({ polling: true });
+  console.log('\n=== STARTING VAAZHI TELEGRAM BOT (POLLING MODE) ===\n');
+  
+  // Test Supabase connection before starting bot
+  (async () => {
+    try {
+      console.log('🧪 Testing Supabase connection...');
+      const { data, error } = await supabase.from('financial_tasks').select('count', { count: 'exact', head: true });
+      if (error) {
+        console.error('❌ Supabase query error:', error.message);
+        throw error;
+      }
+      console.log('✅ Supabase connection successful!\n');
+      
+      // Start bot
+      await initBot();
+      console.log('🎯 Bot is now listening for messages (polling)...\n');
+      
+    } catch (err) {
+      console.error('❌ CRITICAL: Cannot connect to Supabase');
+      console.error('   Error:', err?.message || err);
+      process.exit(1);
+    }
+  })();
 }
 
 module.exports = { initBot, getBot, processWebhookUpdate };

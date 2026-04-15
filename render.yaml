@@ -1,0 +1,33 @@
+services:
+  # Backend service (Telegram bot - polling mode)
+  - type: web
+    name: vaazhi-backend
+    runtime: node
+    plan: free
+    buildCommand: npm install
+    startCommand: npm start
+    envVars:
+      - key: SUPABASE_URL
+        sync: false
+      - key: SUPABASE_SERVICE_ROLE_KEY
+        sync: false
+      - key: TELEGRAM_BOT_TOKEN
+        sync: false
+      - key: AUTHORIZED_TELEGRAM_USER_IDS
+        sync: false
+      - key: TELEGRAM_ADMIN_USER_IDS
+        sync: false
+      - key: TELEGRAM_ACCESS_KEY
+        sync: false
+
+  # Frontend service
+  - type: static
+    name: vaazhi-frontend
+    runtime: static
+    buildCommand: cd frontend && npm install && npm run build
+    staticPublishPath: frontend/dist
+    routes:
+      - path: /
+        methods:
+          - GET
+        dest: /index.html

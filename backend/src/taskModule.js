@@ -225,37 +225,71 @@ function isValidDateString(value) {
   return date.getFullYear() === y && date.getMonth() + 1 === m && date.getDate() === d;
 }
 
-function beginTaskAction({ chatId, action, sessions, bot, userId }) {
-  let taskType = 'task';
-  if (action === 'add_routine') taskType = 'routine';
-  if (action === 'add_challenge') taskType = 'challenge';
+async function beginTaskAction({ chatId, action, sessions, bot, userId }) {
+  try {
+    let taskType = 'task';
+    if (action === 'add_routine') taskType = 'routine';
+    if (action === 'add_challenge') taskType = 'challenge';
 
-  sessions.set(chatId, {
-    module: 'task',
-    action,
-    step: 'title',
-    userId,
-    payload: {
-      task_type: taskType,
-      task_date: getTodayDateString(),
-      due_date: null,
-      due_time: null,
-      routine_frequency: null,
-      routine_days: [],
-      routine_month_day: null,
-      challenge_duration_days: null,
-      challenge_end_date: null,
-      description: null,
-      user_id: userId,
-    },
-  });
+    const session = {
+      module: 'task',
+      action,
+      step: 'title',
+      userId,
+      createdAt: Date.now(),
+      payload: {
+        task_type: taskType,
+        task_date: getTodayDateString(),
+        due_date: null,
+        due_time: null,
+        routine_frequency: null,
+        routine_days: [],
+        routine_month_day: null,
+        challenge_duration_days: null,
+        challenge_end_date: null,
+        description: null,
+        user_id: userId,
+      },
+    };
 
-  const emoji = taskType === 'routine' ? '🔄' : taskType === 'challenge' ? '🏆' : '✅';
-  bot.sendMessage(chatId, `${emoji} Enter ${taskType} ${taskType === 'challenge' ? 'name' : 'title'}:`);
+    sessions.set(chatId, session);
+    console.log(`📝 Session created for ${taskType}:`, { chatId, userId, action });
+
+    const emoji = taskType === 'routine' ? '🔄' : taskType === 'challenge' ? '🏆' : '✅';
+    const prompt = `${emoji} Enter ${taskType} ${taskType === 'challenge' ? 'name' : 'title'}:`;
+    
+    console.log(`📤 Sending prompt to ${chatId}:`, prompt);
+    await bot.sendMessage(chatId, prompt);
+    console.log(`✅ Prompt sent successfully to ${chatId}`);
+  } catch (err) {
+    console.error('❌ Error in beginTaskAction:', err);
+    throw err;
+  }
 }
 
-async function handleTaskCallbackQuery({ chatId, data, sessions, bot, userId }) {
+async function handleTaskCallbackQuery({ chatId, data, sessions, bot, userId, supabase }) {
   const session = sessions.get(chatId);
+
+  // Handle filter callbacks (these don't need a session)
+  if (data === TASK_CALLBACKS.FILTER_ALL || data === TASK_CALLBACKS.FILTER_TODAY || 
+      data === TASK_CALLBACKS.FILTER_TOMORROW || data === TASK_CALLBACKS.FILTER_WEEK || 
+      data === TASK_CALLBACKS.FILTER_ROUTINES || data === TASK_CALLBACKS.FILTER_CHALLENGES) {
+    
+    const filterMap = {
+      [TASK_CALLBACKS.FILTER_ALL]: 'all',
+      [TASK_CALLBACKS.FILTER_TODAY]: 'today',
+      [TASK_CALLBACKS.FILTER_TOMORROW]: 'tomorrow',
+      [TASK_CALLBACKS.FILTER_WEEK]: 'week',
+      [TASK_CALLBACKS.FILTER_ROUTINES]: 'routines',
+      [TASK_CALLBACKS.FILTER_CHALLENGES]: 'challenges',
+    };
+    
+    const filter = filterMap[data];
+    if (filter) {
+      await sendTaskPreview({ chatId, bot, supabase, filter, userId });
+      return true;
+    }
+  }
 
   if (!session || session.module !== 'task') {
     return false;
@@ -505,88 +539,115 @@ function getFilterKeyboard() {
 }
 
 async function sendTaskPreview({ chatId, bot, supabase, filter = 'all', userId }) {
-  let query = supabase
-    .from('financial_tasks')
-    .select('id,title,task_type,due_date,due_time,challenge_duration_days,challenge_end_date,completed')
-    .eq('completed', false);
+  try {
+    let query = supabase
+      .from('financial_tasks')
+      .select('id,title,task_type,due_date,due_time,challenge_duration_days,challenge_end_date,completed')
+      .eq('completed', false);
 
-  if (userId) {
-    query = query.eq('user_id', userId);
+    // Always filter by user_id if provided (important for performance!)
+    if (userId) {
+      query = query.eq('user_id', userId);
+    }
+
+    const today = getTodayDateString();
+    const tomorrow = getDateString(1);
+    const endOfWeek = getDateString(7);
+
+    if (filter === 'today') {
+      query = query.eq('due_date', today);
+    } else if (filter === 'tomorrow') {
+      query = query.eq('due_date', tomorrow);
+    } else if (filter === 'week') {
+      query = query.gte('due_date', today).lte('due_date', endOfWeek);
+    } else if (filter === 'routines') {
+      query = query.eq('task_type', 'routine');
+    } else if (filter === 'challenges') {
+      query = query.eq('task_type', 'challenge');
+    }
+
+    const { data, error } = await query.order('due_date', { ascending: true }).limit(10);
+
+    if (error) {
+      console.error('Error fetching tasks:', error);
+      await bot.sendMessage(chatId, '⚠️ Could not load tasks. Please try again.');
+      return;
+    }
+
+    const pending = data || [];
+    const filterLabel = {
+      all: '📋 All pending items',
+      today: '📅 Due today',
+      tomorrow: '🔜 Due tomorrow',
+      week: '📆 Due this week',
+      routines: '🔄 Routines',
+      challenges: '🏆 Challenges',
+    }[filter] || 'Current pending items';
+
+    const formattedItems = pending
+      .map((item, idx) => {
+        const time = item.due_time ? ` at ${item.due_time}` : '';
+        let emoji = '✅';
+        if (item.task_type === 'routine') emoji = '🔄';
+        if (item.task_type === 'challenge') emoji = '🏆';
+        
+        let itemStr = `${idx + 1}. ${emoji} ${item.title}`;
+        if (item.task_type === 'challenge') {
+          itemStr += ` (${item.challenge_duration_days}d, ends ${item.challenge_end_date})`;
+        } else {
+          itemStr += ` (due ${item.due_date || 'n/a'}${time})`;
+        }
+        return itemStr;
+      })
+      .join('\n');
+
+    await bot.sendMessage(chatId, `${filterLabel}:\n\n${pending.length > 0 ? formattedItems : 'No items'}`, {
+      reply_markup: getFilterKeyboard(),
+    });
+  } catch (err) {
+    console.error('Error in sendTaskPreview:', err?.message || err);
+    await bot.sendMessage(chatId, '⚠️ Error loading tasks. Please try again.');
   }
-
-  const today = getTodayDateString();
-  const tomorrow = getDateString(1);
-  const endOfWeek = getDateString(7);
-
-  if (filter === 'today') {
-    query = query.eq('due_date', today);
-  } else if (filter === 'tomorrow') {
-    query = query.eq('due_date', tomorrow);
-  } else if (filter === 'week') {
-    query = query.gte('due_date', today).lte('due_date', endOfWeek);
-  } else if (filter === 'routines') {
-    query = query.eq('task_type', 'routine');
-  } else if (filter === 'challenges') {
-    query = query.eq('task_type', 'challenge');
-  }
-
-  const { data } = await query.order('due_date', { ascending: true }).limit(10);
-
-  const pending = data || [];
-  const filterLabel = {
-    all: '📋 All pending items',
-    today: '📅 Due today',
-    tomorrow: '🔜 Due tomorrow',
-    week: '📆 Due this week',
-    routines: '🔄 Routines',
-    challenges: '🏆 Challenges',
-  }[filter] || 'Current pending items';
-
-  const formattedItems = pending
-    .map((item, idx) => {
-      const time = item.due_time ? ` at ${item.due_time}` : '';
-      let emoji = '✅';
-      if (item.task_type === 'routine') emoji = '🔄';
-      if (item.task_type === 'challenge') emoji = '🏆';
-      
-      let itemStr = `${idx + 1}. ${emoji} ${item.title}`;
-      if (item.task_type === 'challenge') {
-        itemStr += ` (${item.challenge_duration_days}d, ends ${item.challenge_end_date})`;
-      } else {
-        itemStr += ` (due ${item.due_date || 'n/a'}${time})`;
-      }
-      return itemStr;
-    })
-    .join('\n');
-
-  await bot.sendMessage(chatId, `${filterLabel}:\n\n${pending.length > 0 ? formattedItems : 'No items'}`, {
-    reply_markup: getFilterKeyboard(),
-  });
 }
 
 async function insertTaskEntry({ session, supabase }) {
-  const payload = session.payload;
+  try {
+    const payload = session.payload;
 
-  return supabase.from('financial_tasks').insert({
-    title: payload.title,
-    description: payload.description || null,
-    task_date: payload.task_date,
-    task_time: null,
-    due_date: payload.due_date,
-    due_time: payload.due_time || '09:00',
-    task_type: payload.task_type,
-    routine_frequency: payload.task_type === 'routine' ? payload.routine_frequency : null,
-    routine_days:
-      payload.task_type === 'routine' && ['daily', 'weekly'].includes(payload.routine_frequency)
-        ? payload.routine_days
-        : [],
-    routine_month_day:
-      payload.task_type === 'routine' && payload.routine_frequency === 'monthly' ? payload.routine_month_day : null,
-    challenge_duration_days: payload.task_type === 'challenge' ? payload.challenge_duration_days : null,
-    challenge_end_date: payload.task_type === 'challenge' ? payload.challenge_end_date : null,
-    user_id: payload.user_id || null,
-    completed: false,
-  });
+    console.log(`🔗 Connecting to Supabase to insert ${payload.task_type}...`);
+
+    const result = await supabase.from('financial_tasks').insert({
+      title: payload.title,
+      description: payload.description || null,
+      task_date: payload.task_date,
+      task_time: null,
+      due_date: payload.due_date,
+      due_time: payload.due_time || '09:00',
+      task_type: payload.task_type,
+      routine_frequency: payload.task_type === 'routine' ? payload.routine_frequency : null,
+      routine_days:
+        payload.task_type === 'routine' && ['daily', 'weekly'].includes(payload.routine_frequency)
+          ? payload.routine_days
+          : [],
+      routine_month_day:
+        payload.task_type === 'routine' && payload.routine_frequency === 'monthly' ? payload.routine_month_day : null,
+      challenge_duration_days: payload.task_type === 'challenge' ? payload.challenge_duration_days : null,
+      challenge_end_date: payload.task_type === 'challenge' ? payload.challenge_end_date : null,
+      user_id: payload.user_id || null,
+      completed: false,
+    });
+
+    if (result.error) {
+      console.error(`❌ Supabase error:`, result.error);
+      return result;
+    }
+
+    console.log(`✅ Supabase insert successful:`, result.data);
+    return result;
+  } catch (err) {
+    console.error(`❌ Exception in insertTaskEntry:`, err);
+    return { error: err, data: null };
+  }
 }
 
 async function handleTaskMessage({ chatId, text, sessions, bot, supabase, sendMainMenu, userId }) {
@@ -595,6 +656,8 @@ async function handleTaskMessage({ chatId, text, sessions, bot, supabase, sendMa
   if (!session || session.module !== 'task') {
     return false;
   }
+
+  console.log(`📨 Task message received | Chat: ${chatId}, Step: ${session.step}, Text: "${text.substring(0, 50)}"`);
 
   if (session.step === 'title') {
     const title = text.trim();
@@ -606,6 +669,7 @@ async function handleTaskMessage({ chatId, text, sessions, bot, supabase, sendMa
     }
 
     session.payload.title = title;
+    console.log(`📝 Title set: "${title}"`);
 
     if (session.payload.task_type === 'routine') {
       session.step = 'routine_frequency';
@@ -698,14 +762,25 @@ async function handleTaskMessage({ chatId, text, sessions, bot, supabase, sendMa
     const description = text.trim();
     session.payload.description = description.toLowerCase() === 'skip' ? null : description;
 
-    const { error } = await insertTaskEntry({ session, supabase });
+    console.log(`💾 Saving ${session.payload.task_type}:`, {
+      title: session.payload.title,
+      type: session.payload.task_type,
+      dueDate: session.payload.due_date,
+      dueTime: session.payload.due_time,
+      userId: session.payload.user_id,
+    });
+
+    const { error, data } = await insertTaskEntry({ session, supabase });
 
     if (error) {
+      console.error(`❌ Database error saving ${session.payload.task_type}:`, error);
       await bot.sendMessage(chatId, `Could not save ${session.payload.task_type}: ${error.message}`);
       sessions.delete(chatId);
       await sendMainMenu(chatId, 'Operation failed. Choose an option:');
       return true;
     }
+
+    console.log(`✅ ${session.payload.task_type} saved successfully!`, { id: data?.[0]?.id });
 
     const typeLabel = session.payload.task_type === 'routine' ? 'Routine' : session.payload.task_type === 'challenge' ? 'Challenge' : 'Task';
     const emoji = session.payload.task_type === 'routine' ? '🔄' : session.payload.task_type === 'challenge' ? '🏆' : '✅';

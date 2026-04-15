@@ -35,9 +35,11 @@ supabase db push
   - `AUTHORIZED_TELEGRAM_USER_IDS` — comma-separated Telegram user IDs (or leave empty to use access key)
   - `TELEGRAM_ACCESS_KEY` or `TELEGRAM_SECRET_KEY` — optional; users can send this to gain access
   - `TELEGRAM_ADMIN_USER_IDS` — optional comma-separated admin IDs
+- ✅ **Polling Mode**: Bot runs via polling (no webhook needed)
+- Note: `NODE_ENV` is not needed — the bot uses polling, not Express
 
 4) Deploy the backend
-- Option A — Render / Railway (no Docker required): create a new service, connect repo, set the start command `npm start` and add env vars.
+- Option A — Render / Railway (no Docker required): create a new service, connect repo, set the start command `npm start` (polling mode) and add env vars.
 - Option B — Docker (works with Render, Fly, Docker Cloud, or self-hosting):
 
 ```bash
