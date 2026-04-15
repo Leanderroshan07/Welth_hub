@@ -547,7 +547,8 @@ async function sendTaskPreview({ chatId, bot, supabase, filter = 'all', userId }
 
     // Always filter by user_id if provided (important for performance!)
     if (userId) {
-      query = query.eq('user_id', userId);
+      // Use telegram_user_id (bigint) to avoid UUID-type mismatches
+      query = query.eq('telegram_user_id', userId);
     }
 
     const today = getTodayDateString();
@@ -633,7 +634,8 @@ async function insertTaskEntry({ session, supabase }) {
         payload.task_type === 'routine' && payload.routine_frequency === 'monthly' ? payload.routine_month_day : null,
       challenge_duration_days: payload.task_type === 'challenge' ? payload.challenge_duration_days : null,
       challenge_end_date: payload.task_type === 'challenge' ? payload.challenge_end_date : null,
-      user_id: payload.user_id || null,
+      // Store Telegram numeric id separately to avoid conflicting with UUID user ids
+      telegram_user_id: payload.user_id || null,
       completed: false,
     });
 
