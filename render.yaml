@@ -1,11 +1,11 @@
 services:
   # Backend service (Telegram bot - polling mode)
-  - type: web
+  - type: worker
     name: vaazhi-backend
     runtime: node
     plan: free
     buildCommand: npm install
-    startCommand: npm run start:webhook
+    startCommand: npm start
     envVars:
       - key: SUPABASE_URL
         sync: false
