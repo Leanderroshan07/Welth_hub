@@ -128,7 +128,7 @@ function TaskTypeBadge({ taskType }) {
   return <span className={`inline-flex items-center rounded-full border px-3 py-1 text-xs font-semibold ${meta.badge}`}>{meta.label}</span>;
 }
 
-function TaskCard({ task, onToggleComplete, onDelete, overdue = false, completed = false }) {
+function TaskCard({ task, onToggleComplete, onDelete, onEdit, overdue = false, completed = false }) {
   const routineSchedule = formatRoutineSchedule(task);
   const isChallenge = task.task_type === 'challenge';
 
@@ -165,20 +165,30 @@ function TaskCard({ task, onToggleComplete, onDelete, overdue = false, completed
           {routineSchedule ? <p className="mt-1 text-xs uppercase tracking-[0.14em] text-cyan-200/70">{routineSchedule}</p> : null}
           {task.description ? <p className="mt-2 text-sm leading-6 text-slate-400">{task.description}</p> : null}
         </div>
-        <button
-          type="button"
-          onClick={() => onDelete(task.id)}
-          className="rounded-full border border-white/10 bg-white/5 p-2 text-slate-300 transition hover:border-white/20 hover:bg-white/10 hover:text-white"
-          aria-label="Delete task"
-        >
-          <span className="material-symbols-outlined text-[1.1rem]">delete</span>
-        </button>
+        <div className="flex gap-2">
+          <button
+            type="button"
+            onClick={() => onEdit(task)}
+            className="rounded-full border border-white/10 bg-white/5 p-2 text-slate-300 transition hover:border-white/20 hover:bg-white/10 hover:text-cyan-400"
+            aria-label="Edit task"
+          >
+            <span className="material-symbols-outlined text-[1.1rem]">edit</span>
+          </button>
+          <button
+            type="button"
+            onClick={() => onDelete(task.id)}
+            className="rounded-full border border-white/10 bg-white/5 p-2 text-slate-300 transition hover:border-white/20 hover:bg-white/10 hover:text-rose-400"
+            aria-label="Delete task"
+          >
+            <span className="material-symbols-outlined text-[1.1rem]">delete</span>
+          </button>
+        </div>
       </div>
     </article>
   );
 }
 
-function TaskGroup({ title, count, tasks, emptyMessage, accentClass, onToggleComplete, onDelete, overdue = false }) {
+function TaskGroup({ title, count, tasks, emptyMessage, accentClass, onToggleComplete, onDelete, onEdit, overdue = false }) {
   return (
     <section className="rounded-[1.75rem] border border-white/10 bg-white/5 p-5 shadow-[0_18px_54px_rgba(0,0,0,0.24)]">
       <div className="mb-4 flex items-end justify-between gap-3">
@@ -202,6 +212,7 @@ function TaskGroup({ title, count, tasks, emptyMessage, accentClass, onToggleCom
               completed={task.completed}
               onToggleComplete={onToggleComplete}
               onDelete={onDelete}
+              onEdit={onEdit}
             />
           ))}
         </div>
@@ -213,6 +224,8 @@ function TaskGroup({ title, count, tasks, emptyMessage, accentClass, onToggleCom
 export default function FinancialTasks({ showToast, onTasksChange }) {
   const [tasks, setTasks] = useState([]);
   const [isModalOpen, setIsModalOpen] = useState(false);
+  const [isEditingTask, setIsEditingTask] = useState(false);
+  const [editingTaskId, setEditingTaskId] = useState(null);
   const [saving, setSaving] = useState(false);
   const [submitError, setSubmitError] = useState('');
   const [routineCalendarView, setRoutineCalendarView] = useState(new Date());
@@ -227,6 +240,7 @@ export default function FinancialTasks({ showToast, onTasksChange }) {
     description: '',
     taskDate: getTodayDateString(),
     taskTime: '',
+    startTime: '',
     dueDate: getTodayDateString(),
     dueTime: '',
     taskType: 'task',
@@ -253,12 +267,15 @@ export default function FinancialTasks({ showToast, onTasksChange }) {
 
   function openModal() {
     setSubmitError('');
+    setIsEditingTask(false);
+    setEditingTaskId(null);
     setRoutineCalendarView(new Date());
     setTaskForm({
       title: '',
       description: '',
       taskDate: getTodayDateString(),
       taskTime: '',
+      startTime: '',
       dueDate: getTodayDateString(),
       dueTime: '',
       taskType: 'task',
@@ -269,9 +286,32 @@ export default function FinancialTasks({ showToast, onTasksChange }) {
     setIsModalOpen(true);
   }
 
+  function openEditModal(task) {
+    setSubmitError('');
+    setIsEditingTask(true);
+    setEditingTaskId(task.id);
+    setRoutineCalendarView(new Date());
+    setTaskForm({
+      title: task.title || '',
+      description: task.description || '',
+      taskDate: task.task_date || getTodayDateString(),
+      taskTime: task.task_time || '',
+      startTime: task.start_time || '',
+      dueDate: task.due_date || getTodayDateString(),
+      dueTime: task.due_time || '',
+      taskType: task.task_type || 'task',
+      routineFrequency: task.routine_frequency || 'daily',
+      routineDays: task.routine_days || ['mon'],
+      routineMonthDay: task.routine_month_day || '1',
+    });
+    setIsModalOpen(true);
+  }
+
   function closeModal() {
     setIsModalOpen(false);
     setSubmitError('');
+    setIsEditingTask(false);
+    setEditingTaskId(null);
   }
 
   function updateTaskField(field, value) {
@@ -309,7 +349,7 @@ export default function FinancialTasks({ showToast, onTasksChange }) {
       return;
     }
 
-    if (!taskForm.dueDate) {
+    if (!isEditingTask && !taskForm.dueDate) {
       setSubmitError('Due date is required.');
       return;
     }
@@ -337,22 +377,38 @@ export default function FinancialTasks({ showToast, onTasksChange }) {
 
     setSaving(true);
 
-    const { error: insertError } = await supabase.from('financial_tasks').insert({
+    const taskData = {
       title: taskForm.title.trim(),
       description: taskForm.description.trim() || null,
       task_date: taskForm.taskDate,
       task_time: taskForm.taskTime || null,
+      start_time: taskForm.startTime || null,
       due_date: taskForm.dueDate,
       due_time: taskForm.dueTime || null,
       task_type: taskForm.taskType,
       routine_frequency: isRoutine ? taskForm.routineFrequency : null,
       routine_days: isRoutine && ['daily', 'weekly'].includes(taskForm.routineFrequency) ? taskForm.routineDays : [],
       routine_month_day: isRoutine && taskForm.routineFrequency === 'monthly' ? Number(taskForm.routineMonthDay) : null,
-    });
+    };
 
-    if (insertError) {
-      setSubmitError(insertError.message);
-      showToast?.(insertError.message, 'error');
+    let error = null;
+
+    if (isEditingTask && editingTaskId) {
+      const { error: updateError } = await supabase
+        .from('financial_tasks')
+        .update(taskData)
+        .eq('id', editingTaskId);
+      error = updateError;
+    } else {
+      const { error: insertError } = await supabase
+        .from('financial_tasks')
+        .insert(taskData);
+      error = insertError;
+    }
+
+    if (error) {
+      setSubmitError(error.message);
+      showToast?.(error.message, 'error');
       setSaving(false);
       return;
     }
@@ -361,7 +417,7 @@ export default function FinancialTasks({ showToast, onTasksChange }) {
     await onTasksChange?.();
     setSaving(false);
     closeModal();
-    showToast?.('Task added successfully.', 'success');
+    showToast?.(isEditingTask ? 'Task updated successfully.' : 'Task added successfully.', 'success');
   }
 
   async function toggleTaskComplete(taskId, completed) {
@@ -631,6 +687,7 @@ export default function FinancialTasks({ showToast, onTasksChange }) {
         accentClass="text-rose-200"
         onToggleComplete={toggleTaskComplete}
         onDelete={deleteTask}
+        onEdit={openEditModal}
         overdue
       />
 
@@ -642,6 +699,7 @@ export default function FinancialTasks({ showToast, onTasksChange }) {
         accentClass="text-cyan-200"
         onToggleComplete={toggleTaskComplete}
         onDelete={deleteTask}
+        onEdit={openEditModal}
       />
 
       <TaskGroup
@@ -652,17 +710,18 @@ export default function FinancialTasks({ showToast, onTasksChange }) {
         accentClass="text-emerald-200"
         onToggleComplete={toggleTaskComplete}
         onDelete={deleteTask}
+        onEdit={openEditModal}
         completed
       />
 
       {isModalOpen ? (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/75 p-4" onClick={closeModal}>
           <div
-            className="w-full max-w-2xl rounded-[1.75rem] border border-white/10 bg-[#0f1418]/95 p-5 text-slate-100 shadow-[0_30px_120px_rgba(0,0,0,0.55)]"
+            className="w-full max-w-2xl max-h-[90vh] rounded-[1.75rem] border border-white/10 bg-[#0f1418]/95 text-slate-100 shadow-[0_30px_120px_rgba(0,0,0,0.55)] flex flex-col"
             onClick={(event) => event.stopPropagation()}
           >
-            <div className="mb-5 flex items-center justify-between gap-3">
-              <h3 className="text-xl font-bold text-white">Add Financial Task</h3>
+            <div className="mb-5 flex items-center justify-between gap-3 p-5 flex-shrink-0">
+              <h3 className="text-xl font-bold text-white">{isEditingTask ? 'Edit Financial Task' : 'Add Financial Task'}</h3>
               <button
                 type="button"
                 className="grid h-10 w-10 place-items-center rounded-full border border-white/10 bg-white/5 text-slate-200 transition hover:bg-white/10"
@@ -673,7 +732,7 @@ export default function FinancialTasks({ showToast, onTasksChange }) {
               </button>
             </div>
 
-            <form onSubmit={handleTaskSubmit} className="space-y-4">
+            <form onSubmit={handleTaskSubmit} className="space-y-4 overflow-y-auto flex-1 px-5 pb-5">
               <label className="block text-sm font-medium text-slate-200">
                 Task Title
                 <input
@@ -695,16 +754,18 @@ export default function FinancialTasks({ showToast, onTasksChange }) {
                 />
               </label>
 
-              <div className="grid gap-4 md:grid-cols-2">
-                <label className="block text-sm font-medium text-slate-200">
-                  Task Date
-                  <input
-                    type="date"
-                    className="mt-2 w-full rounded-2xl border border-white/10 bg-white/5 px-4 py-3 text-slate-100 outline-none transition focus:border-cyan-400/60 focus:ring-2 focus:ring-cyan-400/20"
-                    value={taskForm.taskDate}
-                    onChange={(event) => updateTaskField('taskDate', event.target.value)}
-                  />
-                </label>
+              {taskForm.taskType !== 'routine' ? (
+                <div className="grid gap-4 md:grid-cols-2">
+                  <label className="block text-sm font-medium text-slate-200">
+                    Task Date
+                    <input
+                      type="date"
+                      className="mt-2 w-full rounded-2xl border border-white/10 bg-white/5 px-4 py-3 text-slate-100 outline-none transition focus:border-cyan-400/60 focus:ring-2 focus:ring-cyan-400/20"
+                      value={taskForm.taskDate}
+                      onChange={(event) => updateTaskField('taskDate', event.target.value)}
+                    />
+                  </label>
+                  <label className="block text-sm font-medium text-slate-200">
                 <label className="block text-sm font-medium text-slate-200">
                   Task Time (Optional)
                   <input
@@ -714,28 +775,50 @@ export default function FinancialTasks({ showToast, onTasksChange }) {
                     onChange={(event) => updateTaskField('taskTime', event.target.value)}
                   />
                 </label>
-              </div>
-
-              <div className="grid gap-4 md:grid-cols-2">
                 <label className="block text-sm font-medium text-slate-200">
-                  Due Date
-                  <input
-                    type="date"
-                    className="mt-2 w-full rounded-2xl border border-white/10 bg-white/5 px-4 py-3 text-slate-100 outline-none transition focus:border-cyan-400/60 focus:ring-2 focus:ring-cyan-400/20"
-                    value={taskForm.dueDate}
-                    onChange={(event) => updateTaskField('dueDate', event.target.value)}
-                  />
-                </label>
-                <label className="block text-sm font-medium text-slate-200">
-                  Due Time (Optional)
+                  Start Time (Optional)
                   <input
                     type="time"
                     className="mt-2 w-full rounded-2xl border border-white/10 bg-white/5 px-4 py-3 text-slate-100 outline-none transition focus:border-cyan-400/60 focus:ring-2 focus:ring-cyan-400/20"
-                    value={taskForm.dueTime}
-                    onChange={(event) => updateTaskField('dueTime', event.target.value)}
+                    value={taskForm.startTime}
+                    onChange={(event) => updateTaskField('startTime', event.target.value)}
                   />
                 </label>
               </div>
+            ) : (
+              <label className="block text-sm font-medium text-slate-200">
+                Routine Time (Optional)
+                <input
+                  type="time"
+                  className="mt-2 w-full rounded-2xl border border-white/10 bg-white/5 px-4 py-3 text-slate-100 outline-none transition focus:border-cyan-400/60 focus:ring-2 focus:ring-cyan-400/20"
+                  value={taskForm.taskTime}
+                  onChange={(event) => updateTaskField('taskTime', event.target.value)}
+                />
+              </label>
+            )}
+
+            {taskForm.taskType !== 'routine' && (
+              <div className="grid gap-4 md:grid-cols-2">
+                  <label className="block text-sm font-medium text-slate-200">
+                    Due Date
+                    <input
+                      type="date"
+                      className="mt-2 w-full rounded-2xl border border-white/10 bg-white/5 px-4 py-3 text-slate-100 outline-none transition focus:border-cyan-400/60 focus:ring-2 focus:ring-cyan-400/20"
+                      value={taskForm.dueDate}
+                      onChange={(event) => updateTaskField('dueDate', event.target.value)}
+                    />
+                  </label>
+                  <label className="block text-sm font-medium text-slate-200">
+                    Due Time (Optional)
+                    <input
+                      type="time"
+                      className="mt-2 w-full rounded-2xl border border-white/10 bg-white/5 px-4 py-3 text-slate-100 outline-none transition focus:border-cyan-400/60 focus:ring-2 focus:ring-cyan-400/20"
+                      value={taskForm.dueTime}
+                      onChange={(event) => updateTaskField('dueTime', event.target.value)}
+                    />
+                  </label>
+                </div>
+              )}
 
               <label className="block text-sm font-medium text-slate-200">
                 Task Type
@@ -879,7 +962,7 @@ export default function FinancialTasks({ showToast, onTasksChange }) {
                 className="inline-flex w-full items-center justify-center rounded-2xl bg-cyan-400 px-5 py-3.5 text-sm font-bold text-slate-950 transition hover:bg-cyan-300 disabled:cursor-not-allowed disabled:opacity-70"
                 disabled={saving}
               >
-                {saving ? 'Adding...' : 'Add Task'}
+                {saving ? (isEditingTask ? 'Updating...' : 'Adding...') : (isEditingTask ? 'Update Task' : 'Add Task')}
               </button>
             </form>
           </div>

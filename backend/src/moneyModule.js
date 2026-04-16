@@ -6,9 +6,8 @@ const MONEY_CALLBACKS = {
   BACK: 'menu:main',
   PICK_ACCOUNT: 'money:pick_account',
   PICK_FROM_ACCOUNT: 'money:pick_from_account',
-  PICK_TO_ACCOUNT: 'money:pick_to_account',
-  PICK_SUB_ACCOUNT: 'money:pick_sub_account',
-  SKIP_SUB_ACCOUNT: 'money:skip_sub_account',
+  PICK_TO_SUB_ACCOUNT: 'money:pick_to_sub_account',
+  SKIP_TO_SUB_ACCOUNT: 'money:skip_to_sub_account',
   PICK_CATEGORY: 'money:pick_category',
   PICK_SUB_CATEGORY: 'money:pick_sub_category',
   SKIP_SUB_CATEGORY: 'money:skip_sub_category',
@@ -160,19 +159,45 @@ function parseAmount(text) {
 async function insertMoneyEntry({ session, supabase }) {
   const amount = session.payload.amount;
 
+  // Transfer to account or sub-account
   if (session.action === 'transfer') {
-    return supabase.from('ledger_entries').insert({
+    const isSplit = session.payload.splitAllocations && Object.keys(session.payload.splitAllocations).length > 0;
+    
+    // Create transfer entry
+    const { data: transferEntry, error: insertError } = await supabase.from('ledger_entries').insert({
       entry_type: 'transfer',
       amount,
-      from_account: session.payload.from_account,
-      to_account: session.payload.to_account,
+      from_account: session.payload.from_account || null,
+      to_account: session.payload.to_account || null,
+      to_sub_account_id: session.payload.to_sub_account_id || null,
       note: session.payload.note || null,
-      category: null,
-      account_name: null,
+      is_split_transfer: isSplit || false,
+      split_note: session.payload.split_note || null,
       occurred_at: new Date().toISOString(),
-    });
+    }).select();
+
+    if (insertError) return { error: insertError };
+
+    // Insert split details if split transfer
+    const transferId = transferEntry?.[0]?.id;
+    if (transferId && isSplit && session.payload.splitAllocations) {
+      const splitInsertions = Object.entries(session.payload.splitAllocations)
+        .filter(([, amount]) => Number(amount) > 0)
+        .map(([subAccId, amount]) => ({
+          transfer_id: transferId,
+          split_type: subAccId,
+          amount: Number(amount),
+        }));
+
+      if (splitInsertions.length > 0) {
+        await supabase.from('transfer_split_details').insert(splitInsertions);
+      }
+    }
+
+    return { data: transferEntry };
   }
 
+  // Income/Expense entry
   return supabase.from('ledger_entries').insert({
     entry_type: session.action,
     amount,
@@ -230,32 +255,38 @@ async function handleMoneyCallbackQuery({ chatId, data, sessions, bot }) {
     }
 
     session.payload.from_account = account.name;
-    session.step = 'to_account';
+    session.step = 'to_sub_account';
     sessions.set(chatId, session);
-    await sendAccountPicker({
-      chatId,
-      bot,
-      accounts: session.refs.accounts,
-      prefix: MONEY_CALLBACKS.PICK_TO_ACCOUNT,
-      prompt: 'Choose TO account:',
-    });
+
+    if (!session.refs.subAccounts.length) {
+      session.payload.to_sub_account_id = null;
+      session.step = 'note';
+      sessions.set(chatId, session);
+      await bot.sendMessage(chatId, 'Enter note (or type skip):');
+      return true;
+    }
+
+    await sendSubAccountPicker({ chatId, bot, subAccounts: session.refs.subAccounts });
     return true;
   }
 
-  const toAccountId = parsePick(data, MONEY_CALLBACKS.PICK_TO_ACCOUNT);
-  if (toAccountId && session.step === 'to_account') {
-    const account = session.refs.accounts.find((item) => item.id === toAccountId);
-    if (!account) {
-      await bot.sendMessage(chatId, 'Invalid to account selection. Try again.');
+  const toSubAccountId = parsePick(data, MONEY_CALLBACKS.PICK_TO_SUB_ACCOUNT);
+  if (toSubAccountId && session.step === 'to_sub_account') {
+    const subAccount = session.refs.subAccounts.find((item) => item.id === toSubAccountId);
+    if (!subAccount) {
+      await bot.sendMessage(chatId, 'Invalid sub-account selection. Try again.');
       return true;
     }
 
-    if (String(account.name).toLowerCase() === String(session.payload.from_account || '').toLowerCase()) {
-      await bot.sendMessage(chatId, 'From and To accounts must be different. Choose TO account again.');
-      return true;
-    }
+    session.payload.to_sub_account_id = subAccount.id;
+    session.step = 'note';
+    sessions.set(chatId, session);
+    await bot.sendMessage(chatId, 'Enter note (or type skip):');
+    return true;
+  }
 
-    session.payload.to_account = account.name;
+  if (data === MONEY_CALLBACKS.SKIP_TO_SUB_ACCOUNT && session.step === 'to_sub_account') {
+    session.payload.to_sub_account_id = null;
     session.step = 'note';
     sessions.set(chatId, session);
     await bot.sendMessage(chatId, 'Enter note (or type skip):');
@@ -430,8 +461,8 @@ async function handleMoneyMessage({ chatId, text, sessions, bot, supabase, sendM
     return true;
   }
 
-  if (session.step === 'to_account') {
-    await bot.sendMessage(chatId, 'Use the buttons above to choose TO account.');
+  if (session.step === 'to_sub_account') {
+    await bot.sendMessage(chatId, 'Use the buttons above to choose sub-account (or Skip).');
     return true;
   }
 

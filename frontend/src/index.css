@@ -1359,6 +1359,63 @@ select {
   border-color: rgba(78, 222, 163, 0.35);
 }
 
+.date-time-filter-panel--minimal {
+  display: grid;
+  gap: 0.6rem;
+  padding: 0.75rem;
+  background: rgba(32, 42, 68, 0.3);
+  border-radius: 0.6rem;
+  border: 1px solid rgba(92, 169, 255, 0.1);
+  margin: 0.5rem 0 0.75rem 0;
+}
+
+.filter-row {
+  display: flex;
+  gap: 0.5rem;
+  align-items: center;
+}
+
+.filter-row input,
+.filter-row select {
+  flex: 1;
+  padding: 0.5rem 0.6rem;
+  border-radius: 0.4rem;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  background: rgba(17, 24, 39, 0.5);
+  color: var(--on-surface);
+  font-size: 0.8rem;
+}
+
+.filter-row input::placeholder {
+  color: var(--on-surface-variant);
+}
+
+.filter-row input:focus,
+.filter-row select:focus {
+  outline: none;
+  border-color: var(--primary);
+  background: rgba(17, 24, 39, 0.7);
+}
+
+.filter-clear-btn {
+  padding: 0.5rem 0.6rem;
+  border-radius: 0.4rem;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  background: rgba(255, 109, 109, 0.1);
+  color: var(--tertiary);
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 0.9rem;
+  transition: all 0.2s ease;
+}
+
+.filter-clear-btn:hover {
+  background: rgba(255, 109, 109, 0.2);
+  border-color: var(--tertiary);
+}
+
 .transaction-main {
   display: flex;
   align-items: center;
@@ -2457,11 +2514,15 @@ select {
 
 .transaction-modal {
   width: min(38rem, 100%);
+  max-height: min(85vh, 600px);
   border-radius: 1rem;
   border: 1px solid rgba(60, 74, 66, 0.5);
   background: #1b1b1c;
   padding: 1rem;
   box-shadow: 0 24px 56px rgba(0, 0, 0, 0.45);
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
 }
 
 .transaction-modal--wide {
@@ -2513,6 +2574,7 @@ select {
   justify-content: space-between;
   align-items: center;
   margin-bottom: 0.65rem;
+  flex-shrink: 0;
 }
 
 .modal-header h3 {
@@ -2523,6 +2585,11 @@ select {
 .transaction-form {
   display: grid;
   gap: 0.8rem;
+  overflow-y: auto;
+  padding-right: 0.5rem;
+  padding-bottom: 0.5rem;
+  flex: 1;
+  align-content: start;
 }
 
 .transaction-form label {
@@ -2530,6 +2597,23 @@ select {
   gap: 0.42rem;
   color: var(--on-surface-variant);
   font-size: 0.83rem;
+}
+
+.transaction-form::-webkit-scrollbar {
+  width: 6px;
+}
+
+.transaction-form::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.transaction-form::-webkit-scrollbar-thumb {
+  background: rgba(92, 169, 255, 0.3);
+  border-radius: 3px;
+}
+
+.transaction-form::-webkit-scrollbar-thumb:hover {
+  background: rgba(92, 169, 255, 0.5);
 }
 
 .transaction-row-grid {
@@ -2546,6 +2630,15 @@ select {
   color: var(--on-primary-container);
   font-weight: 800;
   cursor: pointer;
+  width: 100%;
+  margin-top: 0.5rem;
+  flex-shrink: 0;
+  transition: all 0.2s ease;
+}
+
+.submit-btn:hover:not(:disabled) {
+  transform: translateY(-2px);
+  box-shadow: 0 4px 12px rgba(92, 169, 255, 0.2);
 }
 
 .submit-btn:disabled {
@@ -2668,6 +2761,254 @@ select {
 
   .cashflow-stats-grid {
     grid-template-columns: 1fr;
+  }
+}
+
+/* Account Balance Display */
+.account-balance-display {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0.6rem 0.8rem;
+  border-radius: 0.75rem;
+  background: rgba(92, 169, 255, 0.06);
+  border: 1px solid rgba(92, 169, 255, 0.12);
+  margin-top: 0.4rem;
+  font-size: 0.85rem;
+}
+
+.account-balance-display span:first-child {
+  color: var(--on-surface-variant);
+  font-weight: 500;
+}
+
+.account-balance-display span:last-child {
+  color: var(--primary);
+  font-weight: 700;
+  font-family: 'Manrope', sans-serif;
+}
+
+/* Transfer Type Selector */
+.transfer-type-selector {
+  background: rgba(92, 169, 255, 0.06);
+  border: 1.5px solid rgba(92, 169, 255, 0.15);
+  border-radius: 0.8rem;
+  padding: 0.75rem;
+  margin-bottom: 1rem;
+}
+
+.transfer-type-label {
+  color: var(--on-surface-variant);
+  font-size: 0.8rem;
+  font-weight: 600;
+  margin: 0 0 0.6rem 0;
+  letter-spacing: 0.5px;
+  text-transform: uppercase;
+}
+
+.transfer-type-options {
+  display: flex;
+  gap: 1rem;
+}
+
+.transfer-type-option {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  cursor: pointer;
+  font-size: 0.9rem;
+  color: rgba(255, 255, 255, 0.7);
+  transition: color 0.2s ease;
+}
+
+.transfer-type-option input[type="radio"] {
+  width: 18px;
+  height: 18px;
+  cursor: pointer;
+  accent-color: var(--primary);
+}
+
+.transfer-type-option:hover {
+  color: rgba(255, 255, 255, 0.9);
+}
+
+.transfer-type-option input[type="radio"]:checked + span {
+  color: var(--primary);
+  font-weight: 600;
+}
+
+/* Split Transfer Styles */
+.split-transfer-toggle {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+  cursor: pointer;
+  padding: 0.5rem 0.7rem;
+  border-radius: 0.75rem;
+  background: rgba(92, 169, 255, 0.08);
+  border: 1px solid rgba(92, 169, 255, 0.15);
+  margin: 0.5rem 0;
+  user-select: none;
+  transition: all 0.2s ease;
+}
+
+.split-transfer-toggle:hover {
+  background: rgba(92, 169, 255, 0.12);
+  border-color: rgba(92, 169, 255, 0.25);
+}
+
+.split-transfer-toggle input[type="checkbox"] {
+  width: 1.2rem;
+  height: 1.2rem;
+  cursor: pointer;
+  accent-color: var(--primary);
+}
+
+.split-transfer-toggle span {
+  color: var(--on-surface);
+  font-weight: 600;
+  font-size: 0.9rem;
+}
+
+.split-transfer-panel {
+  border: 1.5px solid rgba(92, 169, 255, 0.2);
+  border-radius: 1rem;
+  background: linear-gradient(135deg, rgba(92, 169, 255, 0.08), rgba(87, 227, 159, 0.04));
+  padding: 1rem;
+  margin: 0.75rem 0;
+  backdrop-filter: blur(10px);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.08);
+}
+
+.split-transfer-title {
+  color: var(--on-surface-variant);
+  font-size: 0.85rem;
+  font-weight: 600;
+  margin-bottom: 0.75rem;
+  letter-spacing: 0.5px;
+}
+
+.split-transfer-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 0.9rem;
+  margin-bottom: 1rem;
+}
+
+.split-transfer-item label {
+  display: grid;
+  gap: 0.5rem;
+  padding: 0.8rem;
+  border-radius: 0.85rem;
+  background: rgba(255, 255, 255, 0.04);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  transition: all 0.2s ease;
+  cursor: pointer;
+}
+
+.split-transfer-item label:hover {
+  background: rgba(255, 255, 255, 0.06);
+  border-color: rgba(92, 169, 255, 0.15);
+}
+
+.split-transfer-item label:focus-within {
+  border-color: rgba(92, 169, 255, 0.35);
+  box-shadow: 0 0 0 3px rgba(92, 169, 255, 0.1);
+}
+
+.split-icon {
+  font-size: 1.35rem;
+  line-height: 1;
+  margin-bottom: 0.25rem;
+}
+
+.split-icon.cash {
+  filter: drop-shadow(0 2px 4px rgba(176, 190, 197, 0.15));
+}
+
+.split-icon.bank {
+  filter: drop-shadow(0 2px 4px rgba(92, 169, 255, 0.2));
+}
+
+.split-transfer-item input {
+  width: 100%;
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  border-radius: 0.65rem;
+  background: linear-gradient(180deg, rgba(255, 255, 255, 0.08), rgba(255, 255, 255, 0.03)), rgba(10, 16, 31, 0.5);
+  color: var(--on-surface);
+  padding: 0.55rem 0.65rem;
+  font-size: 0.95rem;
+  font-weight: 600;
+}
+
+.split-transfer-item input::placeholder {
+  color: rgba(168, 186, 214, 0.6);
+}
+
+.split-transfer-item input:focus {
+  outline: none;
+  border-color: rgba(92, 169, 255, 0.4);
+  box-shadow: 0 0 0 3px rgba(92, 169, 255, 0.1);
+}
+
+.split-transfer-summary {
+  display: grid;
+  gap: 0.5rem;
+}
+
+.split-split-bar {
+  display: flex;
+  height: 28px;
+  border-radius: 0.65rem;
+  overflow: hidden;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  background: rgba(255, 255, 255, 0.03);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.08);
+}
+
+.split-split-bar-segment {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: rgba(255, 255, 255, 0.85);
+  font-size: 0.8rem;
+  font-weight: 700;
+  transition: width 0.3s ease;
+  min-width: 30px;
+}
+
+.split-split-bar-segment.cash {
+  background: linear-gradient(90deg, rgba(176, 190, 197, 0.7), rgba(176, 190, 197, 0.5));
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.15);
+}
+
+.split-split-bar-segment.bank {
+  background: linear-gradient(90deg, rgba(92, 169, 255, 0.7), rgba(92, 169, 255, 0.5));
+  box-shadow: inset -1px 1px 0 rgba(255, 255, 255, 0.1);
+}
+
+.split-percentage {
+  font-size: 0.75rem;
+  color: rgba(92, 169, 255, 0.8);
+  font-weight: 600;
+  margin-top: 0.25rem;
+  padding: 0.3rem 0.5rem;
+  background: rgba(92, 169, 255, 0.1);
+  border-radius: 0.4rem;
+  text-align: center;
+}
+
+@media (max-width: 640px) {
+  .split-transfer-grid {
+    grid-template-columns: 1fr;
+  }
+  
+  .split-split-bar {
+    height: 32px;
+  }
+  
+  .split-split-bar-segment {
+    font-size: 0.85rem;
   }
 }
 

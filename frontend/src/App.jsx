@@ -13,7 +13,29 @@ function money(value) {
   }).format(Number(value || 0));
 }
 
-function getTransactionMeta(entry) {
+function getTransactionMeta(entry, subAccountNameById = new Map()) {
+  // Extract date and time
+  const dateTimeStr = entry.occurred_at || '';
+  let dateStr = '';
+  let timeStr = '';
+  
+  if (dateTimeStr) {
+    const parts = dateTimeStr.split('T');
+    dateStr = parts[0] || '';
+    timeStr = parts[1]?.slice(0, 5) || '';
+  }
+
+  // Get sub-account name if exists
+  const subAccountName = entry.sub_account_id ? subAccountNameById.get(entry.sub_account_id) || '' : '';
+  
+  // Build details line
+  const detailsParts = [];
+  if (entry.account_name) detailsParts.push(entry.account_name);
+  if (subAccountName) detailsParts.push(`Sub: ${subAccountName}`);
+  if (dateStr) detailsParts.push(dateStr);
+  if (timeStr) detailsParts.push(timeStr);
+  const detailsStr = detailsParts.join(' • ');
+
   if (entry.entry_type === 'income') {
     return {
       icon: 'payments',
@@ -21,8 +43,8 @@ function getTransactionMeta(entry) {
       amountClass: 'secondary',
       amountSign: '+',
       title: entry.note?.trim() || 'Income Entry',
-      subtitle: `${entry.account_name || 'Account'} | Income`,
-      tag: entry.category || 'Income',
+      subtitle: detailsStr || 'Income',
+      tag: 'Income',
     };
   }
 
@@ -36,7 +58,7 @@ function getTransactionMeta(entry) {
       amountClass: 'tertiary',
       amountSign: '-',
       title,
-      subtitle: `${entry.account_name || 'Account'} | Expense`,
+      subtitle: detailsStr || 'Expense',
       tag: entry.category || 'Expense',
     };
   }
@@ -47,7 +69,7 @@ function getTransactionMeta(entry) {
     amountClass: 'primary',
     amountSign: '',
     title: 'Transfer',
-    subtitle: `${entry.from_account || 'Source'} | ${entry.to_account || 'Destination'}`,
+    subtitle: `${entry.from_account || 'Source'} • ${entry.to_account || 'Destination'}${dateStr ? ' • ' + dateStr : ''}${timeStr ? ' ' + timeStr : ''}`,
     tag: 'Transfer',
   };
 }
@@ -174,10 +196,17 @@ export default function App() {
   const [isCalendarVisible, setIsCalendarVisible] = useState(false);
   const [isMonthExpanded, setIsMonthExpanded] = useState(false);
   const [monthlyTransactionFilter, setMonthlyTransactionFilter] = useState('all');
+  const [dateTimeFilterOpen, setDateTimeFilterOpen] = useState(false);
+  const [filterFromDate, setFilterFromDate] = useState('');
+  const [filterToDate, setFilterToDate] = useState('');
+  const [filterFromTime, setFilterFromTime] = useState('');
+  const [filterToTime, setFilterToTime] = useState('');
+  const [filterEntryType, setFilterEntryType] = useState('all');
   const priorityFilterMenuRef = useRef(null);
 
   const [transactionForm, setTransactionForm] = useState({
     entryType: 'income',
+    transferType: 'to-account', // 'to-account' or 'to-sub-account'
     amount: '',
     accountName: '',
     fromAccount: '',
@@ -186,6 +215,11 @@ export default function App() {
     subCategoryId: '',
     note: '',
     subAccountId: '',
+    occurredDate: '',
+    occurredTime: '12:00',
+    isSplitTransfer: false,
+    splitAllocations: {}, // { subAccountId: amount, ... }
+    toSubAccountId: '',
   });
 
   // Left-sidebar export controls (compact)
@@ -260,6 +294,12 @@ export default function App() {
   const accountNames = useMemo(() => accounts.map((item) => item.name), [accounts]);
   const categoryNames = useMemo(() => categories.map((item) => item.name), [categories]);
   const subAccountOptions = useMemo(() => subAccounts, [subAccounts]);
+  const toAccountSubAccounts = useMemo(() => {
+    if (!transactionForm.toAccount) return [];
+    const toAccountData = accounts.find((acc) => acc.name === transactionForm.toAccount);
+    if (!toAccountData) return [];
+    return subAccounts.filter((subAcc) => subAcc.parent_account_id === toAccountData.id);
+  }, [transactionForm.toAccount, accounts, subAccounts]);
   const selectedCategory = useMemo(
     () => categories.find((category) => category.name === transactionForm.category) || null,
     [categories, transactionForm.category],
@@ -468,6 +508,47 @@ export default function App() {
     return monthlyTransactions.filter((entry) => entry.entry_type === monthlyTransactionFilter);
   }, [monthlyTransactions, monthlyTransactionFilter]);
 
+  const dateTimeFilteredTransactions = useMemo(() => {
+    return entries.filter((entry) => {
+      if (!entry.occurred_at) return false;
+
+      const entryDateStr = entry.occurred_at.split('T')[0];
+      const entryTimeStr = entry.occurred_at.includes('T') ? entry.occurred_at.split('T')[1]?.slice(0, 5) : '';
+
+      // Filter by entry type
+      if (filterEntryType !== 'all' && entry.entry_type !== filterEntryType) {
+        return false;
+      }
+
+      // Filter by date range
+      if (filterFromDate && entryDateStr < filterFromDate) return false;
+      if (filterToDate && entryDateStr > filterToDate) return false;
+
+      // Filter by time range
+      if (filterFromTime && entryTimeStr && entryTimeStr < filterFromTime) return false;
+      if (filterToTime && entryTimeStr && entryTimeStr > filterToTime) return false;
+
+      return true;
+    });
+  }, [entries, filterFromDate, filterToDate, filterFromTime, filterToTime, filterEntryType]);
+
+  const dateTimeFilterStats = useMemo(() => {
+    return dateTimeFilteredTransactions.reduce(
+      (acc, entry) => {
+        const amount = Number(entry.amount || 0);
+        if (entry.entry_type === 'income') {
+          acc.income += amount;
+        } else if (entry.entry_type === 'expense') {
+          acc.expense += amount;
+        }
+        return acc;
+      },
+      { income: 0, expense: 0, count: dateTimeFilteredTransactions.length },
+    );
+  }, [dateTimeFilteredTransactions]);
+
+  const isFilterActive = filterFromDate || filterToDate || filterFromTime || filterToTime || filterEntryType !== 'all';
+
   const monthlyTransactionTotals = useMemo(() => {
     return monthlyTransactions.reduce(
       (acc, entry) => {
@@ -613,17 +694,29 @@ export default function App() {
   function openTransactionModal() {
     setSubmitError('');
     setNewSubAccountName('');
+    
+    const now = new Date();
+    const offset = now.getTimezoneOffset() * 60000;
+    const localDateStr = new Date(now.getTime() - offset).toISOString().split('T')[0];
+    const timeStr = String(now.getHours()).padStart(2, '0') + ':' + String(now.getMinutes()).padStart(2, '0');
+    
     setTransactionForm((current) => ({
       ...current,
       entryType: 'income',
+      transferType: 'to-account',
       amount: '',
       accountName: accountNames[0] || '',
       fromAccount: accountNames[0] || '',
-      toAccount: accountNames[1] || accountNames[0] || '',
-      category: categoryNames[0] || '',
+      toAccount: '',
+      category: '',
       subCategoryId: '',
       note: '',
       subAccountId: '',
+      occurredDate: localDateStr,
+      occurredTime: timeStr,
+      isSplitTransfer: false,
+      splitAllocations: {},
+      toSubAccountId: '',
     }));
     setIsModalOpen(true);
   }
@@ -632,6 +725,24 @@ export default function App() {
     setIsModalOpen(false);
     setSubmitError('');
     setNewSubAccountName('');
+  }
+
+  function resetTransactionFilters() {
+    setFilterFromDate('');
+    setFilterToDate('');
+    setFilterFromTime('');
+    setFilterToTime('');
+    setFilterEntryType('all');
+    setDateTimeFilterOpen(false);
+  }
+
+  function initializeFilterDates() {
+    const now = new Date();
+    const offset = now.getTimezoneOffset() * 60000;
+    const today = new Date(now.getTime() - offset).toISOString().split('T')[0];
+    setFilterFromDate(today);
+    setFilterToDate(today);
+    setDateTimeFilterOpen(true);
   }
 
   function updateTransactionField(name, value) {
@@ -646,8 +757,8 @@ export default function App() {
       return;
     }
 
-    if (transactionForm.entryType === 'transfer') {
-      setSubmitError('Sub-account is only for income or expense.');
+    if (transactionForm.entryType !== 'expense') {
+      setSubmitError('Sub-account is only for expenses.');
       return;
     }
 
@@ -697,6 +808,23 @@ export default function App() {
       return;
     }
 
+    // Validate split transfer amounts
+    if (transactionForm.isSplitTransfer) {
+      const cashAmount = Number(transactionForm.cashAmount) || 0;
+      const bankAmount = Number(transactionForm.bankAmount) || 0;
+      const splitTotal = cashAmount + bankAmount;
+
+      if (splitTotal !== amountValue) {
+        setSubmitError(`Split amounts must equal total amount. Cash (${cashAmount}) + Bank (${bankAmount}) = ${splitTotal}, but total is ${amountValue}`);
+        return;
+      }
+
+      if (cashAmount <= 0 || bankAmount <= 0) {
+        setSubmitError('Both cash and bank amounts must be greater than 0 in split transfers.');
+        return;
+      }
+    }
+
     if (transactionForm.entryType === 'expense') {
       const accountName = transactionForm.accountName;
       const currentBalance = accountBalances.get(accountName) || 0;
@@ -710,25 +838,85 @@ export default function App() {
 
     setSaving(true);
 
+    // Build occurred_at timestamp from date and time
+    let occurredAt = null;
+    if (transactionForm.occurredDate) {
+      const dtString = `${transactionForm.occurredDate}T${transactionForm.occurredTime}:00`;
+      const dt = new Date(dtString);
+      if (!Number.isNaN(dt.getTime())) {
+        occurredAt = dt.toISOString();
+      }
+    }
+
     const payload = {
       entry_type: transactionForm.entryType,
       amount: amountValue,
       account_name: transactionForm.entryType === 'transfer' ? null : transactionForm.accountName,
       from_account: transactionForm.entryType === 'transfer' ? transactionForm.fromAccount : null,
-      to_account: transactionForm.entryType === 'transfer' ? transactionForm.toAccount : null,
-      category: transactionForm.entryType === 'transfer' ? null : transactionForm.category || null,
-      sub_category_id: transactionForm.entryType === 'transfer' ? null : transactionForm.subCategoryId || null,
+      to_account: transactionForm.entryType === 'transfer' && transactionForm.transferType === 'to-account' ? transactionForm.toAccount : null,
+      to_sub_account_id: transactionForm.entryType === 'transfer' && transactionForm.transferType === 'to-sub-account' ? transactionForm.toSubAccountId || null : null,
+      category: transactionForm.entryType === 'expense' ? transactionForm.category || null : null,
+      sub_category_id: transactionForm.entryType === 'expense' ? transactionForm.subCategoryId || null : null,
       note: transactionForm.note.trim() || null,
-      sub_account_id: transactionForm.subAccountId || null,
+      sub_account_id: transactionForm.entryType !== 'transfer' ? transactionForm.subAccountId || null : null,
+      occurred_at: occurredAt,
+      is_split_transfer: transactionForm.isSplitTransfer || false,
+      split_note: transactionForm.isSplitTransfer && transactionForm.transferType === 'to-account'
+        ? Object.entries(transactionForm.splitAllocations)
+            .filter(([, amount]) => amount > 0)
+            .map(([subAccId, amount]) => {
+              const subAcc = toAccountSubAccounts.find((s) => s.id === subAccId);
+              return `${subAcc?.name || 'Sub-Account'}: ${money(amount)}`;
+            })
+            .join(', ')
+        : null,
     };
 
-    const { error: insertError } = await supabase.from('ledger_entries').insert(payload);
+    // Handle account to account split transfer
+    if (transactionForm.entryType === 'transfer' && transactionForm.transferType === 'to-account' && transactionForm.isSplitTransfer) {
+      try {
+        const { data: insertedEntry, error: insertError } = await supabase
+          .from('ledger_entries')
+          .insert(payload)
+          .select();
 
-    if (insertError) {
-      setSubmitError(insertError.message);
-      showToast(insertError.message, 'error');
-      setSaving(false);
-      return;
+        if (insertError) {
+          setSubmitError(insertError.message);
+          showToast(insertError.message, 'error');
+          setSaving(false);
+          return;
+        }
+
+        const transferId = insertedEntry?.[0]?.id;
+        if (transferId) {
+          // Insert sub-account splits
+          const splitInsertions = Object.entries(transactionForm.splitAllocations)
+            .filter(([, amount]) => Number(amount) > 0)
+            .map(([subAccId, amount]) => ({
+              transfer_id: transferId,
+              split_type: subAccId,
+              amount: Number(amount),
+            }));
+
+          if (splitInsertions.length > 0) {
+            await supabase.from('transfer_split_details').insert(splitInsertions);
+          }
+        }
+      } catch (err) {
+        setSubmitError(err.message);
+        showToast(err.message, 'error');
+        setSaving(false);
+        return;
+      }
+    } else {
+      const { error: insertError } = await supabase.from('ledger_entries').insert(payload);
+
+      if (insertError) {
+        setSubmitError(insertError.message);
+        showToast(insertError.message, 'error');
+        setSaving(false);
+        return;
+      }
     }
 
     await loadData();
@@ -774,9 +962,9 @@ export default function App() {
     return entries.slice(0, 4).map((entry) => ({
       id: entry.id,
       amount: Number(entry.amount || 0),
-      ...getTransactionMeta(entry),
+      ...getTransactionMeta(entry, subAccountNameById),
     }));
-  }, [entries]);
+  }, [entries, subAccountNameById]);
 
   const currentDate = useMemo(() => {
     const now = new Date();
@@ -1121,16 +1309,16 @@ export default function App() {
 
             <div className="monthly-summary-row">
               <div>
-                <p className="summary-label">MONTHLY INCOME</p>
-                <p className="monthly-summary-value secondary">{money(monthlyTransactionTotals.income)}</p>
+                <p className="summary-label">TOTAL INCOME</p>
+                <p className="monthly-summary-value secondary">{money(isFilterActive ? dateTimeFilterStats.income : monthlyTransactionTotals.income)}</p>
               </div>
               <div>
-                <p className="summary-label">MONTHLY EXPENSE</p>
-                <p className="monthly-summary-value tertiary">{money(monthlyTransactionTotals.expense)}</p>
+                <p className="summary-label">TOTAL EXPENSE</p>
+                <p className="monthly-summary-value tertiary">{money(isFilterActive ? dateTimeFilterStats.expense : monthlyTransactionTotals.expense)}</p>
               </div>
               <div>
                 <p className="summary-label">TRANSACTIONS</p>
-                <p className="monthly-summary-value">{filteredMonthlyTransactions.length}</p>
+                <p className="monthly-summary-value">{isFilterActive ? dateTimeFilterStats.count : (isFilterActive ? dateTimeFilteredTransactions : filteredMonthlyTransactions).length}</p>
               </div>
             </div>
 
@@ -1155,37 +1343,58 @@ export default function App() {
                   </button>
                 );
               })}
+              <button type="button" className="transaction-filter-pill" onClick={() => setDateTimeFilterOpen(!dateTimeFilterOpen)}>
+                <span className="material-symbols-outlined" style={{fontSize: '0.9rem'}}>calendar_today</span>
+              </button>
             </div>
 
-            <div className="monthly-transactions-list">
-              {filteredMonthlyTransactions.length === 0 ? (
-                <p style={{ color: '#999', textAlign: 'center', padding: '1rem' }}>No transactions found for this month.</p>
-              ) : (
-                filteredMonthlyTransactions.map((entry) => {
-                  const meta = getTransactionMeta(entry);
+            {dateTimeFilterOpen && (
+              <div className="date-time-filter-panel--minimal">
+                <div className="filter-row">
+                  <input type="date" value={filterFromDate} onChange={(e) => setFilterFromDate(e.target.value)} placeholder="From" title="From Date" />
+                  <input type="date" value={filterToDate} onChange={(e) => setFilterToDate(e.target.value)} placeholder="To" title="To Date" />
+                  <select value={filterEntryType} onChange={(e) => setFilterEntryType(e.target.value)}>
+                    <option value="all">All</option>
+                    <option value="income">Income</option>
+                    <option value="expense">Expense</option>
+                    <option value="transfer">Transfer</option>
+                  </select>
+                  <button type="button" className="filter-clear-btn" onClick={resetTransactionFilters} title="Clear filters">
+                    <span className="material-symbols-outlined">close</span>
+                  </button>
+                </div>
+              </div>
+            )}
 
-                  return (
-                    <article key={entry.id} className="transaction-row">
-                      <div className="transaction-main">
-                        <div className={`txn-icon ${meta.iconTone}`}>
-                          <span className="material-symbols-outlined">{meta.icon}</span>
+            <div className="monthly-transactions-list">
+              {(isFilterActive ? dateTimeFilteredTransactions : filteredMonthlyTransactions).length === 0 ? (
+                <p style={{ color: '#999', textAlign: 'center', padding: '1rem' }}>No transactions found.</p>
+              ) : (
+                (isFilterActive ? dateTimeFilteredTransactions : filteredMonthlyTransactions)
+                  .sort((left, right) => String(right.occurred_at || '').localeCompare(String(left.occurred_at || '')))
+                  .map((entry) => {
+                    const meta = getTransactionMeta(entry, subAccountNameById);
+
+                    return (
+                      <article key={entry.id} className="transaction-row">
+                        <div className="transaction-main">
+                          <div className={`txn-icon ${meta.iconTone}`}>
+                            <span className="material-symbols-outlined">{meta.icon}</span>
+                          </div>
+                          <div>
+                            <h4>{meta.title}</h4>
+                            <p>{meta.subtitle || 'Transaction'}</p>
+                          </div>
                         </div>
-                        <div>
-                          <h4>{meta.title}</h4>
-                          <p>
-                            {formatCalendarDateTime(entry.occurred_at, entry.occurred_at?.includes('T') ? entry.occurred_at.split('T')[1]?.slice(0, 5) : '')}
+                        <div className="transaction-side">
+                          <p className={`txn-amount ${meta.amountClass}`}>
+                            {meta.amountSign} {money(entry.amount)}
                           </p>
+                          <span>{entry.entry_type}</span>
                         </div>
-                      </div>
-                      <div className="transaction-side">
-                        <p className={`txn-amount ${meta.amountClass}`}>
-                          {meta.amountSign} {money(entry.amount)}
-                        </p>
-                        <span>{entry.entry_type}</span>
-                      </div>
-                    </article>
-                  );
-                })
+                      </article>
+                    );
+                  })
               )}
             </div>
           </div>
@@ -1207,7 +1416,13 @@ export default function App() {
                 Type
                 <select
                   value={transactionForm.entryType}
-                  onChange={(event) => updateTransactionField('entryType', event.target.value)}
+                  onChange={(event) => {
+                    updateTransactionField('entryType', event.target.value);
+                    if (event.target.value === 'income' || event.target.value === 'transfer') {
+                      updateTransactionField('category', '');
+                      updateTransactionField('subCategoryId', '');
+                    }
+                  }}
                 >
                   <option value="income">Income</option>
                   <option value="expense">Expense</option>
@@ -1229,13 +1444,54 @@ export default function App() {
               </label>
 
               {transactionForm.entryType === 'transfer' ? (
-                <div className="transaction-row-grid">
+                <>
+                  {/* Transfer Type Selector */}
+                  <div className="transfer-type-selector">
+                    <p className="transfer-type-label">Transfer Type:</p>
+                    <div className="transfer-type-options">
+                      <label className="transfer-type-option">
+                        <input
+                          type="radio"
+                          name="transferType"
+                          value="to-account"
+                          checked={transactionForm.transferType === 'to-account'}
+                          onChange={(event) => {
+                            updateTransactionField('transferType', event.target.value);
+                            updateTransactionField('toAccount', '');
+                            updateTransactionField('toSubAccountId', '');
+                            updateTransactionField('splitAllocations', {});
+                            updateTransactionField('isSplitTransfer', false);
+                          }}
+                        />
+                        <span>Account to Account</span>
+                      </label>
+                      <label className="transfer-type-option">
+                        <input
+                          type="radio"
+                          name="transferType"
+                          value="to-sub-account"
+                          checked={transactionForm.transferType === 'to-sub-account'}
+                          onChange={(event) => {
+                            updateTransactionField('transferType', event.target.value);
+                            updateTransactionField('toAccount', '');
+                            updateTransactionField('toSubAccountId', '');
+                            updateTransactionField('splitAllocations', {});
+                            updateTransactionField('isSplitTransfer', false);
+                          }}
+                        />
+                        <span>Account to Sub-Account</span>
+                      </label>
+                    </div>
+                  </div>
+
                   <label>
                     From Account
                     <select
                       value={transactionForm.fromAccount}
                       onChange={(event) => updateTransactionField('fromAccount', event.target.value)}
+                      required
                     >
+                      <option value="">Select source account</option>
                       {accountNames.map((accountName) => (
                         <option key={accountName} value={accountName}>
                           {accountName}
@@ -1243,20 +1499,128 @@ export default function App() {
                       ))}
                     </select>
                   </label>
-                  <label>
-                    To Account
-                    <select
-                      value={transactionForm.toAccount}
-                      onChange={(event) => updateTransactionField('toAccount', event.target.value)}
-                    >
-                      {accountNames.map((accountName) => (
-                        <option key={accountName} value={accountName}>
-                          {accountName}
-                        </option>
-                      ))}
-                    </select>
-                  </label>
-                </div>
+
+                  {transactionForm.fromAccount && (
+                    <div className="account-balance-display">
+                      <span>Available Balance:</span>
+                      <span>{money(accountBalances.get(transactionForm.fromAccount) || 0)}</span>
+                    </div>
+                  )}
+
+                  {/* Account to Account Transfer */}
+                  {transactionForm.transferType === 'to-account' && (
+                    <>
+                      <label>
+                        To Account
+                        <select
+                          value={transactionForm.toAccount}
+                          onChange={(event) => {
+                            updateTransactionField('toAccount', event.target.value);
+                            updateTransactionField('splitAllocations', {});
+                          }}
+                          required
+                        >
+                          <option value="">Select destination account</option>
+                          {accountNames.filter((acc) => acc !== transactionForm.fromAccount).map((accountName) => (
+                            <option key={accountName} value={accountName}>
+                              {accountName}
+                            </option>
+                          ))}
+                        </select>
+                      </label>
+
+                      {transactionForm.toAccount && (
+                        <div className="account-balance-display">
+                          <span>Destination Balance:</span>
+                          <span>{money(accountBalances.get(transactionForm.toAccount) || 0)}</span>
+                        </div>
+                      )}
+
+                      {/* Split Transfer Toggle */}
+                      <label className="split-transfer-toggle">
+                        <input
+                          type="checkbox"
+                          checked={transactionForm.isSplitTransfer}
+                          onChange={(event) => {
+                            updateTransactionField('isSplitTransfer', event.target.checked);
+                            if (event.target.checked) {
+                              updateTransactionField('splitAllocations', {});
+                            }
+                          }}
+                        />
+                        <span>Split to Sub-Accounts</span>
+                      </label>
+
+                      {transactionForm.isSplitTransfer && toAccountSubAccounts.length > 0 && (
+                        <div className="split-transfer-panel">
+                          <p className="split-transfer-title">Allocate to {transactionForm.toAccount}'s sub-accounts:</p>
+                          
+                          <div className="split-transfer-grid">
+                            {toAccountSubAccounts.map((subAccount) => {
+                              const allocated = Number(transactionForm.splitAllocations[subAccount.id] || 0);
+                              const percentage = transactionForm.amount ? (allocated / Number(transactionForm.amount)) * 100 : 0;
+                              
+                              return (
+                                <div key={subAccount.id} className="split-transfer-item">
+                                  <label>
+                                    <span className="split-icon">📦</span>
+                                    {subAccount.name}
+                                    <input
+                                      type="number"
+                                      step="0.01"
+                                      min="0"
+                                      max={transactionForm.amount}
+                                      value={allocated || ''}
+                                      onChange={(event) => {
+                                        const alloc = Number(event.target.value) || 0;
+                                        const newAllocations = { ...transactionForm.splitAllocations };
+                                        newAllocations[subAccount.id] = alloc;
+                                        updateTransactionField('splitAllocations', newAllocations);
+                                      }}
+                                      placeholder="0.00"
+                                    />
+                                  </label>
+                                  {allocated > 0 && (
+                                    <div className="split-percentage">
+                                      {money(allocated)} ({percentage.toFixed(0)}%)
+                                    </div>
+                                  )}
+                                </div>
+                              );
+                            })}
+                          </div>
+
+                          {Object.values(transactionForm.splitAllocations).some((val) => val > 0) && (
+                            <div className="split-transfer-summary">
+                              <p>Total Allocated: {money(Object.values(transactionForm.splitAllocations).reduce((sum, val) => sum + Number(val), 0))} / {money(transactionForm.amount)}</p>
+                            </div>
+                          )}
+                        </div>
+                      )}
+                    </>
+                  )}
+
+                  {/* Account to Sub-Account Transfer */}
+                  {transactionForm.transferType === 'to-sub-account' && (
+                    <>
+                      <label>
+                        To Sub-Account
+                        <select
+                          value={transactionForm.toSubAccountId || ''}
+                          onChange={(event) => updateTransactionField('toSubAccountId', event.target.value)}
+                          required
+                        >
+                          <option value="">Select sub-account</option>
+                          {subAccountOptions.map((subAccount) => (
+                            <option key={subAccount.id} value={subAccount.id}>
+                              {subAccount.name}
+                            </option>
+                          ))}
+                        </select>
+                      </label>
+                    </>
+                  )}
+                </>
               ) : (
                 <label>
                   Account
@@ -1273,7 +1637,7 @@ export default function App() {
                 </label>
               )}
 
-              {transactionForm.entryType !== 'transfer' ? (
+              {transactionForm.entryType === 'expense' ? (
                 <>
                   <label>
                     Category
@@ -1319,22 +1683,41 @@ export default function App() {
                 />
               </label>
 
-              <label>
-                Sub-Account (Optional, shared across accounts)
-                <select
-                  value={transactionForm.subAccountId}
-                  onChange={(event) => updateTransactionField('subAccountId', event.target.value)}
-                >
-                  <option value="">None</option>
-                  {transactionForm.entryType !== 'transfer'
-                    ? subAccountOptions.map((subAccount) => (
-                        <option key={subAccount.id} value={subAccount.id}>
-                          {subAccount.name}
-                        </option>
-                      ))
-                    : null}
-                </select>
-              </label>
+              {transactionForm.entryType !== 'transfer' && (
+                <label>
+                  Sub-Account (Optional)
+                  <select
+                    value={transactionForm.subAccountId}
+                    onChange={(event) => updateTransactionField('subAccountId', event.target.value)}
+                  >
+                    <option value="">None</option>
+                    {subAccountOptions.map((subAccount) => (
+                      <option key={subAccount.id} value={subAccount.id}>
+                        {subAccount.name}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+              )}
+
+              <div className="transaction-row-grid">
+                <label>
+                  Date (Optional)
+                  <input
+                    type="date"
+                    value={transactionForm.occurredDate}
+                    onChange={(event) => updateTransactionField('occurredDate', event.target.value)}
+                  />
+                </label>
+                <label>
+                  Time (Optional)
+                  <input
+                    type="time"
+                    value={transactionForm.occurredTime}
+                    onChange={(event) => updateTransactionField('occurredTime', event.target.value)}
+                  />
+                </label>
+              </div>
 
               {submitError ? <p className="submit-error">{submitError}</p> : null}
 
